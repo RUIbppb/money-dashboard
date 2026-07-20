@@ -8,14 +8,15 @@ const JZCharts = (function () {
   'use strict';
 
   // 支出分類固定配色（順序對應 app.js 的 EXPENSE_CATEGORIES：食/玩樂/交通/寵物/貸款/其他）
-  // 經色彩對比工具驗證過彼此可清楚區分（含色盲模擬），同一分類永遠同一個顏色，不隨資料順序改變
+  // 刻意選低飽和柔和色，貼近無印風；辨識度不足的部分由圖表旁的文字清單（金額＋百分比）補強，
+  // 不讓「顏色」單獨扛辨識責任。同一分類永遠同一個顏色，不隨資料順序改變。
   const CATEGORY_COLORS = {
-    '食': '#a3484b',
-    '玩樂': '#c5953b',
-    '交通': '#3f7932',
-    '寵物': '#00b4bc',
-    '貸款': '#3e68ad',
-    '其他': '#bf85cd'
+    '食': '#8b5050',
+    '玩樂': '#bf9f6a',
+    '交通': '#3f704b',
+    '寵物': '#63b4b8',
+    '貸款': '#486491',
+    '其他': '#bb95c4'
   };
   const FALLBACK_COLOR = '#9B9186'; // 未預期的分類名稱才會用到
   const LINE_COLOR = '#8C9A88';   // 資產折線（暗綠大地色）
@@ -60,8 +61,11 @@ const JZCharts = (function () {
     });
     const values = labels.map(function (k) { return catTotals[k]; });
 
+    const legendEl = document.getElementById(canvasId + '-legend');
+
     if (labels.length === 0) {
       showEmpty(canvasId, '本月沒有支出紀錄');
+      if (legendEl) legendEl.innerHTML = '';
       return;
     }
     hideEmpty(canvasId);
@@ -82,7 +86,8 @@ const JZCharts = (function () {
         maintainAspectRatio: false,
         cutout: '58%',
         plugins: {
-          legend: { position: 'bottom' },
+          // 底下改用我們自己的文字清單顯示金額與百分比，比 Chart.js 內建圖例更清楚，這裡關掉
+          legend: { display: false },
           tooltip: {
             callbacks: {
               label: function (ctx) {
@@ -93,6 +98,23 @@ const JZCharts = (function () {
         }
       }
     });
+
+    // 文字清單：色塊＋分類＋金額＋百分比，由高到低排序，顏色不夠明顯時靠文字補足辨識度
+    if (legendEl) {
+      const total = values.reduce(function (a, b) { return a + b; }, 0) || 1;
+      const rows = labels.map(function (cat, i) { return { cat: cat, val: values[i] }; })
+        .sort(function (a, b) { return b.val - a.val; });
+      legendEl.innerHTML = rows.map(function (r) {
+        const pct = Math.round((r.val / total) * 100);
+        const color = CATEGORY_COLORS[r.cat] || FALLBACK_COLOR;
+        return '<div class="pie-legend-row">' +
+          '<span class="pie-legend-dot" style="background:' + color + '"></span>' +
+          '<span class="pie-legend-name">' + r.cat + '</span>' +
+          '<span class="pie-legend-pct">' + pct + '%</span>' +
+          '<span class="pie-legend-amt">' + fmt(r.val) + ' 元</span>' +
+          '</div>';
+      }).join('');
+    }
   }
 
   // 折線圖：資產成長

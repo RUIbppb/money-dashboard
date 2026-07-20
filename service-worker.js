@@ -11,7 +11,7 @@
  *       避免把即時資料鎖在舊快取裡。
  */
 
-const CACHE_VERSION = 'jz-app-v3';
+const CACHE_VERSION = 'jz-app-v5';
 
 // 要預先快取的殼層檔案（相對路徑，配合 GitHub Pages 子目錄部署）
 const SHELL_FILES = [
@@ -32,7 +32,13 @@ const SHELL_FILES = [
 self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.open(CACHE_VERSION).then(function (cache) {
-      return cache.addAll(SHELL_FILES);
+      // 用 {cache:'reload'} 強制略過瀏覽器自己的 HTTP 快取，直接跟伺服器要最新檔案，
+      // 不然改版後 SW 換了新版本號，抓進來的殼層檔案卻可能還是瀏覽器快取住的舊內容
+      return Promise.all(SHELL_FILES.map(function (url) {
+        return fetch(url, { cache: 'reload' }).then(function (resp) {
+          return cache.put(url, resp);
+        });
+      }));
     }).catch(function () {
       // 某個檔案抓不到也不擋安裝，避免整個 SW 掛掉
     })

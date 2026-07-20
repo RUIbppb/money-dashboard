@@ -172,6 +172,25 @@ input, select, button, textarea {
 }
 .chart-box canvas { max-height: 260px; }
 
+.pie-legend { margin-top: 14px; }
+.pie-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 2px;
+  border-top: 1px solid var(--border-soft);
+}
+.pie-legend-row:first-child { border-top: none; }
+.pie-legend-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex: none;
+}
+.pie-legend-name { flex: 1; color: var(--text); }
+.pie-legend-pct { color: var(--text-sub); width: 42px; text-align: right; }
+.pie-legend-amt { color: var(--text); width: 88px; text-align: right; font-variant-numeric: tabular-nums; }
+
 /* ---------- 明細 ---------- */
 .filters {
   margin: 6px 0 var(--gap);
