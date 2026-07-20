@@ -11,7 +11,7 @@
  *       避免把即時資料鎖在舊快取裡。
  */
 
-const CACHE_VERSION = 'jz-app-v2';
+const CACHE_VERSION = 'jz-app-v3';
 
 // 要預先快取的殼層檔案（相對路徑，配合 GitHub Pages 子目錄部署）
 const SHELL_FILES = [

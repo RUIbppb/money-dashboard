@@ -607,7 +607,8 @@
       switchTab('settings');
       setSettingsMsg('第一次使用請填入連線資訊：查詢 API 網址與唯讀密語（記帳功能另外填下面兩欄）。', '');
     } else {
-      switchTab('overview');
+      // 打開 app 直接停在記帳頁，這是最常用的操作；總覽/圖表/明細仍在下方導覽列一鍵可達
+      switchTab('record');
       // 有設定就抓一次最新資料
       loadData(false);
     }

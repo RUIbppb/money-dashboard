@@ -7,8 +7,17 @@
 const JZCharts = (function () {
   'use strict';
 
-  // 無印風大地色盤（圓餅圖各分類用）
-  const EARTH = ['#A89A8C', '#9AA48C', '#C8B8A8', '#9A8C7E', '#B8A890', '#8C9A88', '#C2B280', '#B0A0A0'];
+  // 支出分類固定配色（順序對應 app.js 的 EXPENSE_CATEGORIES：食/玩樂/交通/寵物/貸款/其他）
+  // 經色彩對比工具驗證過彼此可清楚區分（含色盲模擬），同一分類永遠同一個顏色，不隨資料順序改變
+  const CATEGORY_COLORS = {
+    '食': '#a3484b',
+    '玩樂': '#c5953b',
+    '交通': '#3f7932',
+    '寵物': '#00b4bc',
+    '貸款': '#3e68ad',
+    '其他': '#bf85cd'
+  };
+  const FALLBACK_COLOR = '#9B9186'; // 未預期的分類名稱才會用到
   const LINE_COLOR = '#8C9A88';   // 資產折線（暗綠大地色）
   const INCOME_COLOR = '#9AA48C'; // 收入長條
   const EXPENSE_COLOR = '#B99A8C'; // 支出長條（紅棕大地色）
@@ -44,7 +53,11 @@ const JZCharts = (function () {
     destroy(canvasId);
     const el = document.getElementById(canvasId);
     if (!el) return;
-    const labels = Object.keys(catTotals);
+    // 固定順序排列（跟 CATEGORY_COLORS 一致），讓每個月的相鄰分類都一樣，配色驗證才有意義
+    const order = Object.keys(CATEGORY_COLORS);
+    const labels = Object.keys(catTotals).sort(function (a, b) {
+      return order.indexOf(a) - order.indexOf(b);
+    });
     const values = labels.map(function (k) { return catTotals[k]; });
 
     if (labels.length === 0) {
@@ -59,7 +72,7 @@ const JZCharts = (function () {
         labels: labels,
         datasets: [{
           data: values,
-          backgroundColor: labels.map(function (_, i) { return EARTH[i % EARTH.length]; }),
+          backgroundColor: labels.map(function (cat) { return CATEGORY_COLORS[cat] || FALLBACK_COLOR; }),
           borderColor: '#FFFFFF',
           borderWidth: 2
         }]
