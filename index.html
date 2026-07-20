@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#F7F5F1" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="記帳小幫手" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="css/style.css" />
+  <title>記帳小幫手</title>
+</head>
+<body>
+
+  <!-- 更新提示橫幅 -->
+  <div id="update-banner" class="update-banner">有新版本，點此更新</div>
+
+  <div id="app">
+
+    <!-- 頂部標題 -->
+    <header id="app-header">
+      <div class="app-title">記帳小幫手</div>
+      <div class="app-subtitle">資料時間：<span id="data-time">—</span></div>
+    </header>
+
+    <!-- 離線資料提示 -->
+    <div id="offline-banner" class="offline-banner"></div>
+
+    <main id="main">
+
+      <!-- ===== 總覽 ===== -->
+      <section id="tab-overview" class="tab-section">
+        <div class="total-card">
+          <div class="total-label">總資產（元）</div>
+          <div id="total-asset" class="total-value">—</div>
+        </div>
+
+        <div class="mini-cards">
+          <div class="mini-card">
+            <div class="mini-label">本月收入</div>
+            <div id="month-income" class="mini-value">—</div>
+          </div>
+          <div class="mini-card">
+            <div class="mini-label">本月支出</div>
+            <div id="month-expense" class="mini-value">—</div>
+          </div>
+          <div class="mini-card">
+            <div class="mini-label">本月淨流動</div>
+            <div id="month-net" class="mini-value">—</div>
+          </div>
+        </div>
+
+        <div class="block">
+          <div class="block-title">帳戶餘額</div>
+          <div id="account-list" class="list"></div>
+        </div>
+
+        <div id="tag-section" class="block" style="display:none">
+          <div class="block-title">專案標籤累計</div>
+          <div id="tag-list" class="list"></div>
+        </div>
+      </section>
+
+      <!-- ===== 圖表 ===== -->
+      <section id="tab-charts" class="tab-section">
+        <div class="block">
+          <div class="block-title">本月支出分類</div>
+          <div class="chart-box">
+            <canvas id="chart-pie"></canvas>
+            <div id="chart-pie-empty" class="empty-hint" style="display:none"></div>
+          </div>
+        </div>
+        <div class="block">
+          <div class="block-title">資產成長</div>
+          <div class="chart-box">
+            <canvas id="chart-line"></canvas>
+            <div id="chart-line-empty" class="empty-hint" style="display:none"></div>
+          </div>
+        </div>
+        <div class="block">
+          <div class="block-title">每月收支</div>
+          <div class="chart-box">
+            <canvas id="chart-bar"></canvas>
+            <div id="chart-bar-empty" class="empty-hint" style="display:none"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 明細 ===== -->
+      <section id="tab-detail" class="tab-section">
+        <div class="filters">
+          <div class="filter-row">
+            <select id="detail-month" class="input"></select>
+            <select id="detail-cat" class="input"></select>
+          </div>
+          <input id="detail-kw" class="input" type="text" placeholder="搜尋項目或備註…" />
+        </div>
+        <div id="detail-list" class="detail-list"></div>
+      </section>
+
+      <!-- ===== 記帳 ===== -->
+      <section id="tab-record" class="tab-section">
+        <div id="record-gate" class="gate-hint" style="display:none"></div>
+
+        <div id="record-forms" style="display:none">
+          <div class="mode-switch">
+            <button class="mode-btn active" data-mode="normal">一般記帳</button>
+            <button class="mode-btn" data-mode="transfer">轉帳</button>
+          </div>
+
+          <!-- 一般記帳 -->
+          <div id="form-normal" class="form">
+            <label class="field">
+              <span class="field-label">金額</span>
+              <input id="r-amount" class="input" type="number" inputmode="decimal" min="0" step="1" placeholder="0" />
+            </label>
+            <label class="field">
+              <span class="field-label">項目</span>
+              <input id="r-item" class="input" type="text" placeholder="例如：午餐" />
+            </label>
+            <label class="field">
+              <span class="field-label">分類</span>
+              <select id="r-category" class="input"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">支付帳戶</span>
+              <select id="r-account" class="input"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">備註（選填）</span>
+              <input id="r-note" class="input" type="text" placeholder="可加 #專案標籤，例如 #巭吉" />
+            </label>
+            <button id="r-submit" class="btn-primary">送出記帳</button>
+          </div>
+
+          <!-- 轉帳 -->
+          <div id="form-transfer" class="form" style="display:none">
+            <label class="field">
+              <span class="field-label">金額</span>
+              <input id="t-amount" class="input" type="number" inputmode="decimal" min="0" step="1" placeholder="0" />
+            </label>
+            <label class="field">
+              <span class="field-label">項目</span>
+              <input id="t-item" class="input" type="text" value="資金調度" />
+            </label>
+            <label class="field">
+              <span class="field-label">轉出帳戶</span>
+              <select id="t-from" class="input"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">轉入帳戶</span>
+              <select id="t-to" class="input"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">備註（選填）</span>
+              <input id="t-note" class="input" type="text" placeholder="選填" />
+            </label>
+            <button id="t-submit" class="btn-primary">送出轉帳</button>
+          </div>
+
+          <div id="record-msg" class="record-msg" style="display:none"></div>
+        </div>
+      </section>
+
+      <!-- ===== 設定 ===== -->
+      <section id="tab-settings" class="tab-section">
+        <div class="block">
+          <div class="block-title">查詢連線（讀資料用）</div>
+          <label class="field">
+            <span class="field-label">查詢 API 網址</span>
+            <input id="set-read-url" class="input" type="url" placeholder="https://script.google.com/macros/s/.../exec" />
+          </label>
+          <label class="field">
+            <span class="field-label">唯讀密語</span>
+            <span class="pw-row">
+              <input id="set-read-token" class="input" type="password" placeholder="唯讀通關密語" />
+              <button class="toggle-eye" data-target="set-read-token" type="button">顯示</button>
+            </span>
+          </label>
+        </div>
+
+        <div class="block">
+          <div class="block-title">記帳連線（記帳用，選填）</div>
+          <label class="field">
+            <span class="field-label">記帳 API 網址</span>
+            <input id="set-write-url" class="input" type="url" placeholder="https://script.google.com/macros/s/.../exec" />
+          </label>
+          <label class="field">
+            <span class="field-label">寫入密語</span>
+            <span class="pw-row">
+              <input id="set-write-token" class="input" type="password" placeholder="寫入通關密語" />
+              <button class="toggle-eye" data-target="set-write-token" type="button">顯示</button>
+            </span>
+          </label>
+        </div>
+
+        <div class="btn-group">
+          <button id="set-save" class="btn-primary">儲存設定</button>
+          <button id="set-test" class="btn-secondary">測試連線</button>
+          <button id="set-refresh" class="btn-secondary">重新整理資料</button>
+        </div>
+
+        <div id="set-msg" class="record-msg" style="display:none"></div>
+
+        <div class="footer">
+          <div>製作人Rui / Maker Rui</div>
+          <div>版本 <span class="app-version">v1.0</span></div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- 底部導覽 -->
+    <nav id="bottom-nav">
+      <button class="nav-btn active" data-tab="overview">
+        <span class="nav-ico">總覽</span>
+      </button>
+      <button class="nav-btn" data-tab="charts">
+        <span class="nav-ico">圖表</span>
+      </button>
+      <button class="nav-btn" data-tab="detail">
+        <span class="nav-ico">明細</span>
+      </button>
+      <button class="nav-btn" data-tab="record">
+        <span class="nav-ico">記帳</span>
+      </button>
+      <button class="nav-btn" data-tab="settings">
+        <span class="nav-ico">設定</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- Chart.js（自帶，不連外網） -->
+  <script src="lib/chart.umd.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
