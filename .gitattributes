@@ -1,0 +1,6 @@
+# OCR 相關檔案是二進位／不可被改動內容，強制當 binary，避免換行轉換弄壞它們
+lib/tesseract/eng.traineddata.gz binary
+lib/tesseract/*.wasm.js binary
+lib/tesseract/tesseract.min.js binary
+lib/tesseract/worker.min.js binary
+lib/chart.umd.min.js binary

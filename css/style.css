@@ -289,6 +289,31 @@ select.input {
   margin-top: 4px;
 }
 .btn-primary:disabled { opacity: 0.55; cursor: default; }
+
+/* 截圖辨識入口 */
+.ocr-box { margin-bottom: var(--gap); }
+.btn-ocr {
+  width: 100%;
+  padding: 12px;
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--accent-dark);
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-ocr:disabled { opacity: 0.55; cursor: default; }
+.ocr-status {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #F3EEE4;
+  color: var(--accent-dark);
+  font-size: 11pt;
+  text-align: center;
+}
+.ocr-status.err { background: var(--err-bg); color: var(--err-text); }
+.ocr-status.ok { background: var(--ok-bg); color: var(--ok-text); }
 .btn-secondary {
   width: 100%;
   padding: 12px;

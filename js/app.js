@@ -334,6 +334,137 @@
     // 轉帳送出
     const transferBtn = $('#t-submit');
     if (transferBtn) transferBtn.addEventListener('click', submitTransfer);
+
+    // 截圖辨識
+    initOcr();
+  }
+
+  // ---------- 截圖辨識（OCR）----------
+  // Tesseract.js 檔案大（約 11MB），刻意不預先載入，等使用者第一次按辨識才動態載入。
+  let ocrLibLoading = null; // 快取「載入函式庫」的 Promise，避免重複載入
+  let ocrWorker = null;     // 快取辨識 worker，第二次辨識就不用重建
+
+  function initOcr() {
+    const btn = $('#r-ocr-btn');
+    const file = $('#r-ocr-file');
+    if (!btn || !file) return;
+
+    // 按鈕 → 觸發選圖
+    btn.addEventListener('click', function () { file.click(); });
+
+    // 選好圖片 → 開始辨識
+    file.addEventListener('change', function () {
+      const img = file.files && file.files[0];
+      // 使用者按取消，files 會是空的，安靜結束不報錯
+      if (!img) return;
+      recognizeImage(img);
+      // 清掉 value，這樣下次選「同一張」圖也會觸發 change
+      file.value = '';
+    });
+  }
+
+  function setOcrStatus(text, kind) {
+    const el = $('#r-ocr-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'ocr-status' + (kind ? ' ' + kind : '');
+    el.style.display = text ? 'block' : 'none';
+  }
+
+  // 動態載入 Tesseract.js（只載一次）
+  function loadTesseract() {
+    if (window.Tesseract) return Promise.resolve();
+    if (ocrLibLoading) return ocrLibLoading;
+    ocrLibLoading = new Promise(function (resolve, reject) {
+      const s = document.createElement('script');
+      s.src = 'lib/tesseract/tesseract.min.js';
+      s.onload = function () { resolve(); };
+      s.onerror = function () {
+        ocrLibLoading = null; // 失敗要能重試
+        reject(new Error('辨識工具載入失敗'));
+      };
+      document.head.appendChild(s);
+    });
+    return ocrLibLoading;
+  }
+
+  // 取得（或建立）辨識 worker，指向本機自帶的檔案，不連任何外部 CDN
+  function getOcrWorker() {
+    if (ocrWorker) return Promise.resolve(ocrWorker);
+    // 只辨識英數字（金額字串），用 eng 語言包最小最快
+    return window.Tesseract.createWorker('eng', 1, {
+      workerPath: 'lib/tesseract/worker.min.js',
+      langPath: 'lib/tesseract/',
+      corePath: 'lib/tesseract/'
+    }).then(function (w) {
+      ocrWorker = w;
+      return w;
+    });
+  }
+
+  function recognizeImage(imgFile) {
+    const btn = $('#r-ocr-btn');
+    if (btn) lockBtn(btn, true, '辨識中…');
+    setOcrStatus('正在載入辨識工具…（第一次比較久）', '');
+
+    loadTesseract()
+      .then(function () {
+        setOcrStatus('辨識中…請稍候', '');
+        return getOcrWorker();
+      })
+      .then(function (worker) {
+        return worker.recognize(imgFile);
+      })
+      .then(function (result) {
+        const text = (result && result.data && result.data.text) ? result.data.text : '';
+        applyOcrResult(text);
+      })
+      .catch(function (err) {
+        setOcrStatus('辨識失敗了，請改用手動輸入。（' + (err && err.message ? err.message : '未知原因') + '）', 'err');
+      })
+      .then(function () {
+        if (btn) lockBtn(btn, false, '📷 從截圖辨識金額');
+      });
+  }
+
+  // 從辨識出的文字抓金額與支付帳戶，填進表單
+  function applyOcrResult(text) {
+    // 抓金額：沿用捷徑的邏輯，$ 後面的數字（可含千分位逗號）
+    const m = text.match(/(?:NT)?\$\s*([0-9,]+)/);
+    let filledAmount = false;
+    if (m) {
+      const num = parseInt(m[1].replace(/,/g, ''), 10);
+      if (!isNaN(num) && num > 0) {
+        const amtEl = $('#r-amount');
+        if (amtEl) { amtEl.value = num; filledAmount = true; }
+      }
+    }
+
+    // 判斷支付帳戶：關鍵字比對，且該帳戶要真的在下拉清單裡才選
+    const lower = text.toLowerCase();
+    let matchedAccount = '';
+    if (lower.indexOf('money') >= 0) {
+      matchedAccount = 'LINE PAY MONEY';
+    } else if (lower.indexOf('line pay') >= 0 || text.indexOf('國泰世華') >= 0) {
+      matchedAccount = '國泰信用卡CUBE';
+    }
+    let filledAccount = false;
+    if (matchedAccount) {
+      const accEl = $('#r-account');
+      if (accEl) {
+        const has = Array.prototype.some.call(accEl.options, function (o) { return o.value === matchedAccount; });
+        if (has) { accEl.value = matchedAccount; filledAccount = true; }
+      }
+    }
+
+    // 回報結果（金額是重點；抓不到就提醒手動）
+    if (filledAmount && filledAccount) {
+      setOcrStatus('已帶入金額與支付帳戶，請確認並補上項目與分類。', 'ok');
+    } else if (filledAmount) {
+      setOcrStatus('已帶入金額，請確認並選擇支付帳戶、補上項目與分類。', 'ok');
+    } else {
+      setOcrStatus('沒辨識到金額，麻煩手動輸入。', 'err');
+    }
   }
 
   function setRecordMsg(text, kind) {
@@ -458,7 +589,7 @@
     // 重新整理資料（60 秒節流）
     const refreshBtn = $('#set-refresh');
     if (refreshBtn) refreshBtn.addEventListener('click', function () {
-      const wait = JZ.secondsUntilCanRefresh(60);
+      const wait = JZ.secondsUntilCanRefresh(5);
       if (wait > 0) {
         setSettingsMsg('太頻繁了，請再等 ' + wait + ' 秒。', 'err');
         return;

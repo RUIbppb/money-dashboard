@@ -115,6 +115,12 @@
 
           <!-- 一般記帳 -->
           <div id="form-normal" class="form">
+            <!-- 截圖辨識入口（辨識金額與支付帳戶，品項分類仍需手動填） -->
+            <div class="ocr-box">
+              <button type="button" id="r-ocr-btn" class="btn-ocr">📷 從截圖辨識金額</button>
+              <input id="r-ocr-file" type="file" accept="image/*" style="display:none" />
+              <div id="r-ocr-status" class="ocr-status" style="display:none"></div>
+            </div>
             <label class="field">
               <span class="field-label">金額</span>
               <input id="r-amount" class="input" type="number" inputmode="decimal" min="0" step="1" placeholder="0" />
