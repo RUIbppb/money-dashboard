@@ -10,7 +10,8 @@ const JZCharts = (function () {
   // 支出分類固定配色（順序對應 app.js 的 EXPENSE_CATEGORIES：食/玩樂/交通/寵物/貸款/其他）
   // 刻意選低飽和柔和色，貼近無印風；辨識度不足的部分由圖表旁的文字清單（金額＋百分比）補強，
   // 不讓「顏色」單獨扛辨識責任。同一分類永遠同一個顏色，不隨資料順序改變。
-  const CATEGORY_COLORS = {
+  // 亮色與深色各一組，切換由下方的 applyTheme 負責。
+  const CATEGORY_COLORS_LIGHT = {
     '食': '#8b5050',
     '玩樂': '#bf9f6a',
     '交通': '#3f704b',
@@ -18,20 +19,62 @@ const JZCharts = (function () {
     '貸款': '#486491',
     '其他': '#bb95c4'
   };
-  const FALLBACK_COLOR = '#9B9186'; // 未預期的分類名稱才會用到
-  const LINE_COLOR = '#8C9A88';   // 資產折線（暗綠大地色）
-  const INCOME_COLOR = '#9AA48C'; // 收入長條
-  const EXPENSE_COLOR = '#B99A8C'; // 支出長條（紅棕大地色）
-  const GRID = '#ECE8E1';
-  const TEXT = '#6B655C';
+  // 深色模式專用：暗紅、暗綠、暗藍在炭灰底上會糊成一團，全部提亮一階
+  const CATEGORY_COLORS_DARK = {
+    '食': '#C97F72',
+    '玩樂': '#D4B683',
+    '交通': '#6FA37C',
+    '寵物': '#7FC8CC',
+    '貸款': '#7B96C4',
+    '其他': '#C9A9D1'
+  };
+
+  const THEME = {
+    light: {
+      cats: CATEGORY_COLORS_LIGHT,
+      fallback: '#9B9186',    // 未預期的分類名稱才會用到
+      line: '#8C9A88',        // 資產折線（暗綠大地色）
+      lineFill: 'rgba(140,154,136,0.12)',
+      income: '#9AA48C',      // 收入長條
+      expense: '#B99A8C',     // 支出長條（紅棕大地色）
+      grid: '#ECE8E1',
+      text: '#6B655C',
+      pieBorder: '#FFFFFF'    // 圓餅每一塊之間的細線＝卡片底色
+    },
+    dark: {
+      cats: CATEGORY_COLORS_DARK,
+      fallback: '#A79C90',
+      line: '#A3B39E',
+      lineFill: 'rgba(163,179,158,0.18)',  // 暗底上要濃一點才看得出來
+      income: '#A8B49A',
+      expense: '#C9A99A',
+      grid: '#3B3833',
+      text: '#9A948A',
+      pieBorder: '#2A2825'    // 暗色的卡片底色，用白線會變成刺眼的白框
+    }
+  };
+
+  // 目前這一套配色（由 applyTheme 切換）
+  let C = THEME.light;
 
   // 圖表全域字型
-  if (window.Chart) {
+  function applyChartDefaults() {
+    if (!window.Chart) return;
     Chart.defaults.font.family = '"Microsoft JhengHei","微軟正黑體","PingFang TC","Noto Sans TC",sans-serif';
     Chart.defaults.font.size = 13;
-    Chart.defaults.color = TEXT;
+    Chart.defaults.color = C.text;
     Chart.defaults.plugins.legend.labels.boxWidth = 12;
     Chart.defaults.plugins.legend.labels.padding = 12;
+  }
+  applyChartDefaults();
+
+  /*
+   * 切換亮／暗配色。畫面主題一變就要呼叫這支，然後把三張圖重畫一次
+   * ——Chart.js 的圖表建立之後不會自己換色，只能重畫。
+   */
+  function applyTheme(isDark) {
+    C = isDark ? THEME.dark : THEME.light;
+    applyChartDefaults();
   }
 
   // 保存已建立的圖表實例，重畫前先銷毀避免重疊
@@ -54,8 +97,8 @@ const JZCharts = (function () {
     destroy(canvasId);
     const el = document.getElementById(canvasId);
     if (!el) return;
-    // 固定順序排列（跟 CATEGORY_COLORS 一致），讓每個月的相鄰分類都一樣，配色驗證才有意義
-    const order = Object.keys(CATEGORY_COLORS);
+    // 固定順序排列（跟配色表一致），讓每個月的相鄰分類都一樣，配色驗證才有意義
+    const order = Object.keys(C.cats);
     const labels = Object.keys(catTotals).sort(function (a, b) {
       return order.indexOf(a) - order.indexOf(b);
     });
@@ -76,8 +119,8 @@ const JZCharts = (function () {
         labels: labels,
         datasets: [{
           data: values,
-          backgroundColor: labels.map(function (cat) { return CATEGORY_COLORS[cat] || FALLBACK_COLOR; }),
-          borderColor: '#FFFFFF',
+          backgroundColor: labels.map(function (cat) { return C.cats[cat] || C.fallback; }),
+          borderColor: C.pieBorder,
           borderWidth: 2
         }]
       },
@@ -106,7 +149,7 @@ const JZCharts = (function () {
         .sort(function (a, b) { return b.val - a.val; });
       legendEl.innerHTML = rows.map(function (r) {
         const pct = Math.round((r.val / total) * 100);
-        const color = CATEGORY_COLORS[r.cat] || FALLBACK_COLOR;
+        const color = C.cats[r.cat] || C.fallback;
         return '<div class="pie-legend-row">' +
           '<span class="pie-legend-dot" style="background:' + color + '"></span>' +
           '<span class="pie-legend-name">' + r.cat + '</span>' +
@@ -136,12 +179,12 @@ const JZCharts = (function () {
         datasets: [{
           label: '總資產',
           data: monthly.map(function (m) { return m.assets; }),
-          borderColor: LINE_COLOR,
-          backgroundColor: 'rgba(140,154,136,0.12)',
+          borderColor: C.line,
+          backgroundColor: C.lineFill,
           fill: true,
           tension: 0.3,
           pointRadius: 3,
-          pointBackgroundColor: LINE_COLOR,
+          pointBackgroundColor: C.line,
           borderWidth: 2
         }]
       },
@@ -157,9 +200,9 @@ const JZCharts = (function () {
           }
         },
         scales: {
-          x: { grid: { color: GRID } },
+          x: { grid: { color: C.grid } },
           y: {
-            grid: { color: GRID },
+            grid: { color: C.grid },
             ticks: { callback: function (v) { return fmt(v); } }
           }
         }
@@ -186,13 +229,13 @@ const JZCharts = (function () {
           {
             label: '收入',
             data: monthly.map(function (m) { return m.income; }),
-            backgroundColor: INCOME_COLOR,
+            backgroundColor: C.income,
             borderRadius: 3
           },
           {
             label: '支出',
             data: monthly.map(function (m) { return m.expense; }),
-            backgroundColor: EXPENSE_COLOR,
+            backgroundColor: C.expense,
             borderRadius: 3
           }
         ]
@@ -211,7 +254,7 @@ const JZCharts = (function () {
         scales: {
           x: { grid: { display: false } },
           y: {
-            grid: { color: GRID },
+            grid: { color: C.grid },
             ticks: { callback: function (v) { return fmt(v); } }
           }
         }
@@ -238,6 +281,7 @@ const JZCharts = (function () {
   }
 
   return {
+    applyTheme: applyTheme,
     drawCategoryPie: drawCategoryPie,
     drawAssetLine: drawAssetLine,
     drawMonthlyBar: drawMonthlyBar

@@ -19,11 +19,46 @@
   --ok-text: #5E7050;
   --err-bg: #F5E9E6;
   --err-text: #A65A4C;
+  --warn-bg: #F5EFE3;     /* 提醒橫幅底色（柔和琥珀，不用刺眼的黃） */
+  --warn-text: #8A6D3B;
+  --warn-border: #E3D5B8;
+  --tint: #F3EEE4;        /* 淡米色底：離線橫幅、辨識狀態列、記帳未設定提示 */
+  --tint-2: #EFEBE4;      /* 稍深一階的底：一般記帳／轉帳的切換列 */
+  --on-accent: #FFFFFF;   /* 壓在深色強調底上的文字色 */
   --radius: 10px;
   --gap: 16px;
   --font: "Microsoft JhengHei", "微軟正黑體", "PingFang TC", "Noto Sans TC", sans-serif;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top: env(safe-area-inset-top, 0px);
+}
+
+/* ---------- 深色模式 ----------
+ * 只換顏色，佈局（間距、圓角、邊框粗細、字級、留白）一律不動——
+ * 無印風的骨架是「留白＋扁平＋細邊框」，跟顏色深淺無關。
+ * 刻意不用純黑 #000 和純白 #fff，改用炭灰與米白，維持低飽和的安靜感。
+ * 是亮是暗由 index.html 開頭那段小程式決定，掛在 <html data-theme="..."> 上。
+ */
+:root[data-theme="dark"] {
+  --bg: #1F1E1C;          /* 炭灰背景 */
+  --card: #2A2825;        /* 卡片比背景亮一階 */
+  --border: #3B3833;
+  --border-soft: #34312D;
+  --text: #E8E4DC;        /* 米白文字 */
+  --text-sub: #9A948A;
+  --accent: #B5A797;
+  --accent-dark: #C0B2A2; /* 強調色要反過來「提亮」，暗底上原本的深色看不清 */
+  --neg: #C97F72;         /* 支出紅棕，提亮 */
+  --pos: #93A484;         /* 收入暗綠，提亮 */
+  --ok-bg: #2E3A28;
+  --ok-text: #A8BC96;
+  --err-bg: #3D2A26;
+  --err-text: #D99C8E;
+  --warn-bg: #3A3226;
+  --warn-text: #D6BC8A;
+  --warn-border: #4D4132;
+  --tint: #332F29;
+  --tint-2: #3A362F;
+  --on-accent: #1F1E1C;   /* 壓在淺色強調底上的字，跟著反轉成深色 */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -67,7 +102,7 @@ input, select, button, textarea {
   display: none;
   margin: 0 16px 8px;
   padding: 8px 12px;
-  background: #F3EEE4;
+  background: var(--tint);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--accent-dark);
@@ -81,7 +116,7 @@ input, select, button, textarea {
   z-index: 50;
   padding: calc(var(--safe-top) + 10px) 16px 10px;
   background: var(--accent-dark);
-  color: #fff;
+  color: var(--on-accent);
   text-align: center;
   font-size: 12pt;
   cursor: pointer;
@@ -157,6 +192,9 @@ input, select, button, textarea {
 .row-val { font-size: 12pt; font-weight: 600; }
 .row-val.neg { color: var(--neg); }
 .tag-name { color: var(--accent-dark); }
+/* 標籤列可以點，點了會跳到明細並自動篩出這個標籤 */
+.tag-row { cursor: pointer; }
+.tag-row:active { background: var(--tint); }
 
 .empty-hint {
   color: var(--text-sub);
@@ -201,6 +239,32 @@ input, select, button, textarea {
   margin-bottom: 10px;
 }
 .filter-row .input { flex: 1; }
+
+/* 篩選結果的摘要列：筆數＋收支合計 */
+.detail-summary {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  font-size: 11.5pt;
+}
+.sum-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.sum-row + .sum-row { margin-top: 6px; }
+.sum-count { color: var(--text-sub); }
+.sum-pair { display: flex; gap: 16px; }
+.sum-item { color: var(--text-sub); }
+.sum-item b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sum-item.out b { color: var(--neg); }
+.sum-item.in b { color: var(--pos); }
+.sum-note { color: var(--text-sub); font-size: 10.5pt; }
+
+#detail-more { margin-bottom: var(--gap); }
 
 .detail-list { }
 .tx {
@@ -250,10 +314,17 @@ input, select, button, textarea {
 }
 .input:focus { border-color: var(--accent); }
 select.input {
+  /* ⚠️ 下拉箭頭是內嵌的小圖，裡面那個 %238A857C 就是 #8A857C（灰色）。
+     CSS 變數沒辦法寫進 url() 裡面，所以這個顏色沒法抽成變數。
+     以後做深色模式時，記得要在暗色那一段另外覆寫一整行 background-image。 */
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%238A857C' stroke-width='1.5' fill='none'/></svg>");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 30px;
+}
+/* 深色模式下，上面那個灰箭頭在暗底上太黯淡，整行換一張比較亮的（%239A948A 就是 #9A948A） */
+:root[data-theme="dark"] select.input {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%239A948A' stroke-width='1.5' fill='none'/></svg>");
 }
 
 .field { display: block; margin-bottom: 14px; }
@@ -283,7 +354,7 @@ select.input {
   border: none;
   border-radius: 8px;
   background: var(--accent-dark);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
   cursor: pointer;
   margin-top: 4px;
@@ -307,7 +378,7 @@ select.input {
   margin-top: 8px;
   padding: 8px 12px;
   border-radius: 8px;
-  background: #F3EEE4;
+  background: var(--tint);
   color: var(--accent-dark);
   font-size: 11pt;
   text-align: center;
@@ -326,16 +397,17 @@ select.input {
 .btn-secondary:disabled { opacity: 0.55; cursor: default; }
 .btn-group { display: flex; flex-direction: column; gap: 10px; margin-bottom: var(--gap); }
 
-/* 模式切換 */
-.mode-switch {
+/* 模式切換（一般記帳／轉帳，設定頁的外觀三選一也共用這組樣式） */
+.mode-switch, .theme-switch {
   display: flex;
   gap: 8px;
   margin: 6px 0 var(--gap);
-  background: #EFEBE4;
+  background: var(--tint-2);
   border-radius: 10px;
   padding: 4px;
 }
-.mode-btn {
+.theme-switch { margin-bottom: 8px; }
+.mode-btn, .theme-btn {
   flex: 1;
   padding: 9px;
   border: none;
@@ -344,11 +416,19 @@ select.input {
   color: var(--text-sub);
   cursor: pointer;
 }
-.mode-btn.active {
+.theme-btn { font-size: 12pt; }
+.mode-btn.active, .theme-btn.active {
   background: var(--card);
   color: var(--text);
   font-weight: 600;
   border: 1px solid var(--border);
+}
+
+/* 欄位底下的補充說明小字 */
+.field-hint {
+  font-size: 10.5pt;
+  color: var(--text-sub);
+  line-height: 1.6;
 }
 
 .form {
@@ -359,7 +439,7 @@ select.input {
 }
 
 .gate-hint {
-  background: #F3EEE4;
+  background: var(--tint);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 16px;
@@ -404,15 +484,82 @@ select.input {
   flex: 1;
   border: none;
   background: transparent;
-  padding: 10px 0 12px;
+  padding: 8px 0 10px;
   cursor: pointer;
   color: var(--text-sub);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
 }
+/* 圖示是直接寫在 HTML 裡的線條小圖，顏色用 currentColor，
+   所以會自動跟著文字變色（選中變深、深色模式變亮），不用另外寫規則 */
 .nav-ico {
-  font-size: 11.5pt;
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+.nav-label {
+  font-size: 10pt;
+  line-height: 1.2;
 }
 .nav-btn.active {
   color: var(--accent-dark);
   font-weight: 700;
   box-shadow: inset 0 2px 0 var(--accent-dark);
+}
+
+/* ---------- 帳戶對不上的提醒（總覽頁最上方）---------- */
+.warn-banner {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin: 6px 0 var(--gap);
+  color: var(--warn-text);
+  font-size: 11.5pt;
+  line-height: 1.7;
+}
+.warn-banner b { font-weight: 700; }
+
+/* ---------- 常用項目快捷鈕（記帳頁）---------- */
+.quick-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.quick-item {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-sub);
+  border-radius: 20px;
+  padding: 5px 13px;
+  font-size: 11pt;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.quick-item:active {
+  background: var(--tint);
+  color: var(--text);
+}
+
+/* ---------- 記帳成功的視覺回饋 ----------
+ * iPhone 的 Safari 不支援網頁震動（蘋果的平台限制），
+ * 所以在 iPhone 上靠這個「閃一下綠色」讓你確定真的記進去了。
+ */
+@keyframes jz-flash-ok {
+  0%   { background-color: var(--ok-bg); }
+  100% { background-color: var(--card); }
+}
+.flash-ok { animation: jz-flash-ok 0.55s ease-out; }
+
+/* 系統開了「減少動態效果」就不要播動畫 */
+@media (prefers-reduced-motion: reduce) {
+  .flash-ok { animation: none; }
 }

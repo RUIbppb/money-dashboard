@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#F7F5F1" />
+  <!-- 手機瀏覽器上方狀態列的顏色，亮色暗色各一組 -->
+  <meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1F1E1C" media="(prefers-color-scheme: dark)" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -13,6 +15,24 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="css/style.css" />
   <title>記帳小幫手</title>
+  <script>
+    /* 開頁的「瞬間」就決定要亮色還是暗色。
+       這段一定要放在這裡（樣式表之後、畫面之前），
+       不然會先閃一下白畫面才變黑，很難看。
+       設定頁可以選「跟隨手機／固定亮色／固定暗色」，選擇存在這支手機的瀏覽器裡。 */
+    (function () {
+      try {
+        var pref = localStorage.getItem('jz_theme') || 'auto';
+        var useDark = (pref === 'dark') ||
+          (pref === 'auto' && window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-theme', useDark ? 'dark' : 'light');
+      } catch (e) {
+        // 讀不到設定（例如無痕模式）就用亮色，不要讓畫面壞掉
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
 </head>
 <body>
 
@@ -34,6 +54,9 @@
 
       <!-- ===== 總覽 ===== -->
       <section id="tab-overview" class="tab-section">
+        <!-- 帳戶名稱打錯字造成「錢好像不見了」時，這裡會跳出提醒 -->
+        <div id="account-warning" class="warn-banner" style="display:none"></div>
+
         <div class="total-card">
           <div class="total-label">總資產（元）</div>
           <div id="total-asset" class="total-value">—</div>
@@ -100,7 +123,10 @@
           </div>
           <input id="detail-kw" class="input" type="text" placeholder="搜尋項目或備註…" />
         </div>
+        <!-- 篩選結果的筆數與合計（永遠算完整結果，跟畫面上顯示幾筆無關）-->
+        <div id="detail-summary" class="detail-summary" style="display:none"></div>
         <div id="detail-list" class="detail-list"></div>
+        <button id="detail-more" class="btn-secondary" style="display:none">載入更多</button>
       </section>
 
       <!-- ===== 記帳 ===== -->
@@ -125,10 +151,12 @@
               <span class="field-label">金額</span>
               <input id="r-amount" class="input" type="number" inputmode="decimal" min="0" step="1" placeholder="0" />
             </label>
-            <label class="field">
+            <div class="field">
               <span class="field-label">項目</span>
+              <!-- 常用項目：從流水帳統計出你最近最常記的，點一下就填入 -->
+              <div id="r-quick" class="quick-items" style="display:none"></div>
               <input id="r-item" class="input" type="text" placeholder="例如：午餐" />
-            </label>
+            </div>
             <label class="field">
               <span class="field-label">分類</span>
               <select id="r-category" class="input"></select>
@@ -205,6 +233,16 @@
           </label>
         </div>
 
+        <div class="block">
+          <div class="block-title">外觀</div>
+          <div class="theme-switch">
+            <button class="theme-btn" data-theme-pref="auto" type="button">跟隨手機</button>
+            <button class="theme-btn" data-theme-pref="light" type="button">亮色</button>
+            <button class="theme-btn" data-theme-pref="dark" type="button">暗色</button>
+          </div>
+          <div class="field-hint">選「跟隨手機」的話，手機切換深色模式時 App 會自動跟著變。</div>
+        </div>
+
         <div class="btn-group">
           <button id="set-save" class="btn-primary">儲存設定</button>
           <button id="set-test" class="btn-secondary">測試連線</button>
@@ -215,28 +253,45 @@
 
         <div class="footer">
           <div>製作人Rui / Maker Rui</div>
-          <div>版本 <span class="app-version">v1.0</span></div>
+          <div>版本 <span class="app-version">v2.0</span></div>
         </div>
       </section>
 
     </main>
 
     <!-- 底部導覽 -->
+    <!-- 底部導覽：圖示是直接畫在 HTML 裡的線條小圖，不連任何外部圖示庫 -->
     <nav id="bottom-nav">
       <button class="nav-btn active" data-tab="overview">
-        <span class="nav-ico">總覽</span>
+        <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1.3"/>
+        </svg>
+        <span class="nav-label">總覽</span>
       </button>
       <button class="nav-btn" data-tab="charts">
-        <span class="nav-ico">圖表</span>
+        <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 20h18"/><path d="M6.5 20v-6M12 20V5M17.5 20v-9"/>
+        </svg>
+        <span class="nav-label">圖表</span>
       </button>
       <button class="nav-btn" data-tab="detail">
-        <span class="nav-ico">明細</span>
+        <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>
+        </svg>
+        <span class="nav-label">明細</span>
       </button>
       <button class="nav-btn" data-tab="record">
-        <span class="nav-ico">記帳</span>
+        <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5"/><path d="M12 8.2v7.6M8.2 12h7.6"/>
+        </svg>
+        <span class="nav-label">記帳</span>
       </button>
       <button class="nav-btn" data-tab="settings">
-        <span class="nav-ico">設定</span>
+        <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.2"/>
+          <path d="M12 2.6v3M12 18.4v3M2.6 12h3M18.4 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/>
+        </svg>
+        <span class="nav-label">設定</span>
       </button>
     </nav>
 
@@ -244,6 +299,8 @@
 
   <!-- Chart.js（自帶，不連外網） -->
   <script src="lib/chart.umd.min.js"></script>
+  <!-- pure.js 是純算式（只做計算、不碰畫面），要排在最前面讓後面的檔案用得到 -->
+  <script src="js/pure.js"></script>
   <script src="js/api.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/app.js"></script>

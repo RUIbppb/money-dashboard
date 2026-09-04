@@ -7,12 +7,18 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v1.0';
+  // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
+  // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
+  const APP_VERSION = 'v2.0';
 
-  // 記帳分類清單（一般記帳用）
-  const RECORD_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他', '警察收入', '其他收入', '股票收入'];
-  // 支出分類（圓餅圖與明細篩選用）
+  // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
+  // 收入分類
+  const INCOME_CATEGORIES = ['警察收入', '其他收入', '股票收入'];
+  // 記帳分類清單 ＝ 支出 ＋ 收入
+  // （以前這份完整清單在程式裡抄了兩次，以後要改分類很容易漏改一邊，
+  //   現在統一從上面兩份組出來，只要改上面就好）
+  const RECORD_CATEGORIES = EXPENSE_CATEGORIES.concat(INCOME_CATEGORIES);
 
   // 整個 app 的狀態
   const state = {
@@ -100,6 +106,7 @@
       if (totalEl) totalEl.textContent = '—';
       if (accList) accList.innerHTML = '<div class="empty-hint">尚無資料，請先到設定頁連線。</div>';
       if (tagWrap) tagWrap.style.display = 'none';
+      if ($('#account-warning')) $('#account-warning').style.display = 'none';
       return;
     }
 
@@ -156,13 +163,96 @@
       } else {
         tagWrap.style.display = 'block';
         tagList.innerHTML = tags.map(function (t) {
-          return '<div class="row">' +
-            '<span class="row-name tag-name">' + escapeHtml(t.tag) + '</span>' +
+          return '<div class="row tag-row" data-tag="' + escapeHtml(t.tag) + '">' +
+            '<span class="row-name tag-name">' + escapeHtml(t.tag) + ' ›</span>' +
             '<span class="row-val">' + money(t.total) + '</span>' +
             '</div>';
         }).join('');
       }
     }
+
+    renderAccountWarning(d);
+  }
+
+  /*
+   * 支付帳戶名稱打錯字時，那幾筆的錢會「不見」——因為帳戶餘額只算得到名字對得上的帳。
+   * 這裡把它抓出來、講清楚是哪個名字打錯。算法見 pure.js 的 computeAccountMismatch。
+   */
+  function renderAccountWarning(d) {
+    const el = $('#account-warning');
+    if (!el) return;
+
+    const r = JZPure.computeAccountMismatch(d.accounts, d.monthly, d.transactions);
+    if (!r.hasIssue) {
+      el.style.display = 'none';
+      return;
+    }
+
+    let msg;
+    if (r.unknownAccounts.length > 0) {
+      // 找得到是哪個名字打錯 → 直接告訴他要去改什麼
+      const parts = r.unknownAccounts.map(function (u) {
+        return '<b>' + escapeHtml(u.name) + '</b>（' + u.count + ' 筆，' + money(u.total) + ' 元）';
+      });
+      msg = '有紀錄的支付帳戶不在帳戶名單裡：' + parts.join('、') +
+        '。這些錢不會算進上面的帳戶餘額，請到試算表確認是不是打錯字。';
+    } else {
+      // 只知道對不起來，但找不出是哪筆（例如後端算法有變）
+      msg = '帳戶餘額加起來跟總資產差了 <b>' + money(Math.abs(r.diff)) +
+        '</b> 元。可能有紀錄的支付帳戶名稱對不上帳戶名單，建議到試算表檢查一下。';
+    }
+    el.innerHTML = msg;
+    el.style.display = 'block';
+  }
+
+  /*
+   * 常用項目：統計最近 3 個月最常記的項目，做成一排小按鈕。
+   * 為什麼從流水帳統計，而不是只記這個 App 送出過的？
+   * 因為你大部分的帳是用 iPhone 捷徑記的，那些不會經過這個 App，
+   * 只記 App 內的話樣本太少，可能好幾天都湊不滿一排按鈕。
+   */
+  function renderQuickItems() {
+    const el = $('#r-quick');
+    if (!el) return;
+
+    const d = state.data;
+    let names = JZPure.topItems(d ? d.transactions : null, {
+      untilMonth: taipeiCurrentMonth(),
+      months: 3,
+      limit: 10
+    });
+    // 資料還沒抓回來時，退而用這支手機上最近按過的項目頂著
+    if (names.length === 0) names = JZ.getRecentItems();
+
+    if (names.length === 0) {
+      el.innerHTML = '';
+      el.style.display = 'none';
+      return;
+    }
+
+    el.innerHTML = names.map(function (n) {
+      return '<button type="button" class="quick-item" data-item="' + escapeHtml(n) + '">' +
+        escapeHtml(n) + '</button>';
+    }).join('');
+    el.style.display = 'flex';
+  }
+
+  /*
+   * 記帳成功的回饋：能震動就震一下，並讓金額欄閃一下綠色。
+   * ⚠️ iPhone 的 Safari 不支援網頁震動（這是蘋果的平台限制，不是程式問題），
+   *    所以在 iPhone 上只會看到閃綠色；Android 兩個都有。
+   */
+  function celebrate(inputEl) {
+    try {
+      if (navigator.vibrate) navigator.vibrate(30);
+    } catch (e) { /* 不支援就算了 */ }
+
+    if (!inputEl) return;
+    inputEl.classList.remove('flash-ok');
+    // 讀一次 offsetWidth 逼瀏覽器重新計算版面，動畫才會重播（不然連續記兩筆只會亮一次）
+    void inputEl.offsetWidth;
+    inputEl.classList.add('flash-ok');
+    setTimeout(function () { inputEl.classList.remove('flash-ok'); }, 600);
   }
 
   // ---------- 圖表頁 ----------
@@ -188,6 +278,16 @@
 
   // ---------- 明細頁 ----------
 
+  /*
+   * 明細頁的狀態
+   *  detailFilter：記住使用者「自己選過」什麼，這樣去記一筆帳回來，篩選才不會被重設。
+   *                touched 代表他真的動過篩選；沒動過就維持「預設看本月」的原始行為。
+   *  detailState： rows 是完整的篩選結果（合計一律用它算），shown 是畫面上目前顯示到第幾筆。
+   */
+  const detailFilter = { month: null, cat: '__all', kw: '', touched: false };
+  const detailState = { rows: [], shown: 0 };
+  const DETAIL_PAGE_SIZE = 200; // 一次先畫這麼多筆，其餘按「載入更多」
+
   function initDetailFilters() {
     const d = state.data;
     const monthSel = $('#detail-month');
@@ -208,69 +308,187 @@
       monthOpts += '<option value="' + m + '">' + m + '</option>';
     });
     monthSel.innerHTML = monthOpts;
-    // 預設選本月；若本月沒資料就選第一個有的月份
-    if (months.indexOf(cm) >= 0) monthSel.value = cm;
-    else if (months.length > 0) monthSel.value = months[0];
-    else monthSel.value = '__all';
 
-    // 分類下拉
-    const cats = ['食', '玩樂', '交通', '寵物', '貸款', '其他', '警察收入', '其他收入', '股票收入'];
+    // 決定月份要選哪一個：
+    // 使用者自己選過、而且那個選擇在新的清單裡還在 → 還給他
+    // （一定要檢查「還在不在」。不然像 10 月 1 號這種新月份出現的時候，
+    //   會發生「資料更新了畫面卻還卡在上個月」，看起來像壞掉。）
+    const canRestoreMonth = detailFilter.touched && detailFilter.month &&
+      (detailFilter.month === '__all' || months.indexOf(detailFilter.month) >= 0);
+    if (canRestoreMonth) {
+      monthSel.value = detailFilter.month;
+    } else if (months.indexOf(cm) >= 0) {
+      monthSel.value = cm;               // 預設本月
+    } else if (months.length > 0) {
+      monthSel.value = months[0];        // 本月沒資料就選最近有資料的月份
+    } else {
+      monthSel.value = '__all';
+    }
+
+    // 分類下拉：分成「支出」「收入」兩群，不要 9 個混在一起
     let catOpts = '<option value="__all">全部分類</option>';
-    cats.forEach(function (c) { catOpts += '<option value="' + c + '">' + c + '</option>'; });
+    catOpts += '<optgroup label="支出">';
+    EXPENSE_CATEGORIES.forEach(function (c) { catOpts += '<option value="' + c + '">' + c + '</option>'; });
+    catOpts += '</optgroup><optgroup label="收入">';
+    INCOME_CATEGORIES.forEach(function (c) { catOpts += '<option value="' + c + '">' + c + '</option>'; });
+    catOpts += '</optgroup>';
     catSel.innerHTML = catOpts;
-    catSel.value = '__all';
+
+    const canRestoreCat = detailFilter.touched && detailFilter.cat &&
+      (detailFilter.cat === '__all' || RECORD_CATEGORIES.indexOf(detailFilter.cat) >= 0);
+    catSel.value = canRestoreCat ? detailFilter.cat : '__all';
+
+    // 把最後決定的值寫回記憶，讓下次還原時有依據
+    detailFilter.month = monthSel.value;
+    detailFilter.cat = catSel.value;
   }
 
-  function renderDetailList() {
+  /*
+   * 篩選的「唯一入口」。
+   * 換月份、換分類、打關鍵字、點標籤跳過來、資料重新載入——通通走這裡，
+   * 這樣就不會有某條路徑忘記把「已顯示筆數」歸零、導致畫面和合計對不起來。
+   */
+  function applyDetailFilter() {
     const d = state.data;
+    const monthSel = $('#detail-month');
+    const catSel = $('#detail-cat');
+    const kwEl = $('#detail-kw');
+
+    detailFilter.month = monthSel ? monthSel.value : '__all';
+    detailFilter.cat = catSel ? catSel.value : '__all';
+    detailFilter.kw = kwEl ? kwEl.value : '';
+
+    detailState.rows = JZPure.filterTransactions(d ? d.transactions : null, {
+      month: detailFilter.month,
+      cat: detailFilter.cat,
+      kw: detailFilter.kw
+    });
+    detailState.shown = 0;
+    renderDetailList();
+  }
+
+  // 把一筆交易畫成一張小卡
+  function txCardHtml(t) {
+    const amt = Number(t.amount) || 0;
+    let sign = '', cls = '';
+    if (t.type === '支出') { sign = '−'; cls = 'amt-out'; }
+    else if (t.type === '收入') { sign = '+'; cls = 'amt-in'; }
+    else { sign = ''; cls = 'amt-transfer'; } // 轉入／轉出用灰色
+
+    const noteHtml = t.note ? '<div class="tx-note">' + escapeHtml(t.note) + '</div>' : '';
+
+    return '<div class="tx">' +
+      '<div class="tx-top">' +
+        '<span class="tx-item">' + escapeHtml(t.item || '') + '</span>' +
+        '<span class="tx-amt ' + cls + '">' + sign + money(amt) + '</span>' +
+      '</div>' +
+      '<div class="tx-sub">' +
+        '<span>' + fmtDateTime(t.time) + '</span>' +
+        '<span class="tx-tags">' + escapeHtml(t.category || '') + ' · ' + escapeHtml(t.account || '') + '　<em>' + escapeHtml(t.type || '') + '</em></span>' +
+      '</div>' +
+      noteHtml +
+      '</div>';
+  }
+
+  // 摘要列：筆數與合計。
+  // ★合計一律用「完整的篩選結果」算，跟畫面上目前顯示幾筆完全無關★
+  function renderDetailSummary() {
+    const el = $('#detail-summary');
+    if (!el) return;
+
+    const rows = detailState.rows;
+    if (!rows || rows.length === 0) {
+      el.style.display = 'none';
+      return;
+    }
+
+    const s = JZPure.summarize(rows);
+    let html = '<div class="sum-row">' +
+      '<span class="sum-count">共 ' + s.count + ' 筆</span>' +
+      '<span class="sum-pair">' +
+        '<span class="sum-item out">支出 <b>' + money(s.expense) + '</b></span>' +
+        '<span class="sum-item in">收入 <b>' + money(s.income) + '</b></span>' +
+      '</span></div>';
+
+    // 轉帳只有真的篩到才顯示，平常不佔版面。
+    // 它是「錢從左口袋換到右口袋」，跟收支不同性質，所以另外列、不混進上面兩個數字。
+    if (s.transfer > 0) {
+      html += '<div class="sum-row"><span class="sum-note">轉帳 ' + money(s.transfer) + '（不計入收支）</span></div>';
+    }
+
+    el.innerHTML = html;
+    el.style.display = 'block';
+  }
+
+  // 把明細畫出來。分批顯示：一次先畫 DETAIL_PAGE_SIZE 筆，其餘按「載入更多」再接上去。
+  function renderDetailList() {
     const listEl = $('#detail-list');
+    const moreBtn = $('#detail-more');
     if (!listEl) return;
 
-    if (!d) {
+    if (!state.data) {
       listEl.innerHTML = '<div class="empty-hint">尚無資料。</div>';
+      if ($('#detail-summary')) $('#detail-summary').style.display = 'none';
+      if (moreBtn) moreBtn.style.display = 'none';
       return;
     }
 
-    const month = ($('#detail-month') || {}).value || '__all';
-    const cat = ($('#detail-cat') || {}).value || '__all';
-    const kw = (($('#detail-kw') || {}).value || '').trim().toLowerCase();
+    renderDetailSummary();
 
-    const rows = (d.transactions || []).filter(function (t) {
-      if (month !== '__all' && txMonth(t.time) !== month) return false;
-      if (cat !== '__all' && t.category !== cat) return false;
-      if (kw) {
-        const hay = ((t.item || '') + ' ' + (t.note || '')).toLowerCase();
-        if (hay.indexOf(kw) < 0) return false;
-      }
-      return true;
-    });
-
+    const rows = detailState.rows;
     if (rows.length === 0) {
       listEl.innerHTML = '<div class="empty-hint">沒有符合條件的紀錄。</div>';
+      if (moreBtn) moreBtn.style.display = 'none';
       return;
     }
 
-    listEl.innerHTML = rows.map(function (t) {
-      const amt = Number(t.amount) || 0;
-      let sign = '', cls = '';
-      if (t.type === '支出') { sign = '−'; cls = 'amt-out'; }
-      else if (t.type === '收入') { sign = '+'; cls = 'amt-in'; }
-      else { sign = ''; cls = 'amt-transfer'; } // 轉入／轉出用灰色
+    const end = Math.min(rows.length, DETAIL_PAGE_SIZE);
+    detailState.shown = end;
+    listEl.innerHTML = rows.slice(0, end).map(txCardHtml).join('');
+    updateDetailMoreBtn();
+  }
 
-      const noteHtml = t.note ? '<div class="tx-note">' + escapeHtml(t.note) + '</div>' : '';
+  // 按「載入更多」：把下一批接在後面，不要整份重畫（不然會跳回頂端）
+  function loadMoreDetail() {
+    const listEl = $('#detail-list');
+    const rows = detailState.rows;
+    if (!listEl || detailState.shown >= rows.length) return;
 
-      return '<div class="tx">' +
-        '<div class="tx-top">' +
-          '<span class="tx-item">' + escapeHtml(t.item || '') + '</span>' +
-          '<span class="tx-amt ' + cls + '">' + sign + money(amt) + '</span>' +
-        '</div>' +
-        '<div class="tx-sub">' +
-          '<span>' + fmtDateTime(t.time) + '</span>' +
-          '<span class="tx-tags">' + escapeHtml(t.category || '') + ' · ' + escapeHtml(t.account || '') + '　<em>' + escapeHtml(t.type || '') + '</em></span>' +
-        '</div>' +
-        noteHtml +
-        '</div>';
-    }).join('');
+    const end = Math.min(rows.length, detailState.shown + DETAIL_PAGE_SIZE);
+    const html = rows.slice(detailState.shown, end).map(txCardHtml).join('');
+    listEl.insertAdjacentHTML('beforeend', html);
+    detailState.shown = end;
+    updateDetailMoreBtn();
+  }
+
+  function updateDetailMoreBtn() {
+    const moreBtn = $('#detail-more');
+    if (!moreBtn) return;
+    const remain = detailState.rows.length - detailState.shown;
+    if (remain > 0) {
+      moreBtn.textContent = '載入更多（還有 ' + remain + ' 筆）';
+      moreBtn.style.display = 'block';
+    } else {
+      moreBtn.style.display = 'none';
+    }
+  }
+
+  /*
+   * 從總覽的專案標籤點進來：切到明細頁，自動篩出這個標籤的所有花費。
+   * ★月份一定要設成「全部」★——總覽上那個標籤金額是「全部期間」的加總，
+   * 如果明細只篩本月，兩個數字會對不起來，看起來像程式壞了。
+   * 做對的話會有一個很好的驗收指標：明細的「支出合計」會剛好等於總覽上那個數字。
+   */
+  function jumpToTag(tag) {
+    switchTab('detail');
+    const monthSel = $('#detail-month');
+    const catSel = $('#detail-cat');
+    const kwEl = $('#detail-kw');
+    if (monthSel) monthSel.value = '__all';
+    if (catSel) catSel.value = '__all';
+    if (kwEl) kwEl.value = tag;
+    detailFilter.touched = true;
+    applyDetailFilter();
   }
 
   // ---------- 記帳頁 ----------
@@ -309,11 +527,26 @@
 
   function initRecordForm() {
     // 分類下拉
+    // 分類下拉分成「支出」「收入」兩群，不要 9 個混在一起滑到眼花
     const catSel = $('#r-category');
     if (catSel) {
-      catSel.innerHTML = RECORD_CATEGORIES.map(function (c) {
-        return '<option value="' + c + '">' + c + '</option>';
-      }).join('');
+      let html = '<optgroup label="支出">';
+      EXPENSE_CATEGORIES.forEach(function (c) { html += '<option value="' + c + '">' + c + '</option>'; });
+      html += '</optgroup><optgroup label="收入">';
+      INCOME_CATEGORIES.forEach(function (c) { html += '<option value="' + c + '">' + c + '</option>'; });
+      html += '</optgroup>';
+      catSel.innerHTML = html;
+    }
+
+    // 常用項目：點一下就把項目填好
+    const quickEl = $('#r-quick');
+    if (quickEl) {
+      quickEl.addEventListener('click', function (e) {
+        const btn = e.target && e.target.closest ? e.target.closest('.quick-item') : null;
+        if (!btn) return;
+        const itemEl = $('#r-item');
+        if (itemEl) { itemEl.value = btn.getAttribute('data-item') || ''; itemEl.focus(); }
+      });
     }
 
     // 模式切換（一般記帳 / 轉帳）
@@ -420,7 +653,10 @@
         applyOcrResult(text);
       })
       .catch(function (err) {
-        setOcrStatus('辨識失敗了，請改用手動輸入。（' + (err && err.message ? err.message : '未知原因') + '）', 'err');
+        // 辨識函式庫丟出來的是英文技術訊息，不要直接貼給使用者看。
+        // 真的需要查原因時，到瀏覽器的開發者工具看 console 就有完整內容。
+        if (window.console && console.warn) console.warn('截圖辨識失敗：', err);
+        setOcrStatus('辨識失敗了，請改用手動輸入。（可能是圖片太大，或辨識工具沒載入成功）', 'err');
       })
       .then(function () {
         if (btn) lockBtn(btn, false, '📷 從截圖辨識金額');
@@ -429,15 +665,13 @@
 
   // 從辨識出的文字抓金額與支付帳戶，填進表單
   function applyOcrResult(text) {
-    // 抓金額：沿用捷徑的邏輯，$ 後面的數字（可含千分位逗號）
-    const m = text.match(/(?:NT)?\$\s*([0-9,]+)/);
+    // 抓金額：交給 pure.js 的三層階梯規則（有錢幣符號、有「元」、或有「金額／合計」
+    // 這類關鍵字才抓；都沒有就寧可回報抓不到，也不要亂填一個錯數字進去）
+    const num = JZPure.parseAmountFromText(text);
     let filledAmount = false;
-    if (m) {
-      const num = parseInt(m[1].replace(/,/g, ''), 10);
-      if (!isNaN(num) && num > 0) {
-        const amtEl = $('#r-amount');
-        if (amtEl) { amtEl.value = num; filledAmount = true; }
-      }
+    if (num !== null) {
+      const amtEl = $('#r-amount');
+      if (amtEl) { amtEl.value = num; filledAmount = true; }
     }
 
     // 判斷支付帳戶：關鍵字比對，且該帳戶要真的在下拉清單裡才選
@@ -495,9 +729,14 @@
         lockBtn(btn, false, '送出記帳');
         setRecordMsg(res.message, res.ok ? 'ok' : 'err');
         if (res.ok) {
+          JZ.pushRecentItem(item);
+          celebrate($('#r-amount'));
           $('#r-amount').value = '';
           $('#r-item').value = '';
           $('#r-note').value = '';
+          reloadAfterWrite();
+        } else if (res.timeout) {
+          // 逾時不代表沒記成功，先幫他重抓一次，切到明細馬上就能確認
           reloadAfterWrite();
         }
       });
@@ -524,7 +763,10 @@
         lockBtn(btn, false, '送出轉帳');
         setRecordMsg(res.message, res.ok ? 'ok' : 'err');
         if (res.ok) {
+          celebrate($('#t-amount'));
           $('#t-amount').value = '';
+          reloadAfterWrite();
+        } else if (res.timeout) {
           reloadAfterWrite();
         }
       });
@@ -536,9 +778,10 @@
     if (text) btn.textContent = text;
   }
 
-  // 記帳成功後重新抓資料（略過 60 秒節流，因為是使用者主動記帳）
+  // 記帳成功後立刻重新抓一次資料，讓餘額與明細馬上跟著更新。
+  // （設定頁那個「兩次更新至少隔 60 秒」的限制只擋那顆按鈕，這條路徑不受影響）
   function reloadAfterWrite() {
-    loadData(true);
+    loadData();
   }
 
   // ---------- 設定頁 ----------
@@ -564,7 +807,7 @@
       setSettingsMsg('設定已儲存。', 'ok');
       refreshRecordAccounts();
       // 存好後自動抓一次，並跳到總覽頁（與使用說明一致）
-      loadData(true);
+      loadData();
       switchTab('overview');
     });
 
@@ -589,14 +832,14 @@
     // 重新整理資料（60 秒節流）
     const refreshBtn = $('#set-refresh');
     if (refreshBtn) refreshBtn.addEventListener('click', function () {
-      const wait = JZ.secondsUntilCanRefresh(5);
+      const wait = JZ.secondsUntilCanRefresh(60);
       if (wait > 0) {
         setSettingsMsg('太頻繁了，請再等 ' + wait + ' 秒。', 'err');
         return;
       }
       lockBtn(refreshBtn, true, '更新中…');
       setSettingsMsg('更新中…', '');
-      loadData(false).then(function (res) {
+      loadData().then(function (res) {
         lockBtn(refreshBtn, false, '重新整理資料');
         setSettingsMsg(res.ok ? '資料已更新。' : res.message, res.ok ? 'ok' : 'err');
       });
@@ -621,10 +864,56 @@
     el.style.display = text ? 'block' : 'none';
   }
 
+  // ---------- 深淺色主題 ----------
+
+  /*
+   * 把目前的主題套到畫面上。做三件事：
+   *  1. 換 <html data-theme="light|dark">，整份 CSS 的顏色會跟著換
+   *  2. 通知圖表換一套配色，並把已經畫出來的圖重畫（Chart.js 不會自己換色）
+   *  3. 更新設定頁那三顆按鈕誰被選中
+   */
+  function refreshTheme() {
+    const dark = JZ.shouldUseDark();
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+
+    if (window.JZCharts && JZCharts.applyTheme) {
+      JZCharts.applyTheme(dark);
+      // 只有正在看圖表頁時才需要當場重畫；其他頁切過去時本來就會重畫一次
+      if ($('#tab-charts') && $('#tab-charts').classList.contains('active')) {
+        renderCharts();
+      }
+    }
+
+    const pref = JZ.getTheme();
+    $all('.theme-btn').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-theme-pref') === pref);
+    });
+  }
+
+  function initTheme() {
+    $all('.theme-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        JZ.saveTheme(btn.getAttribute('data-theme-pref'));
+        refreshTheme();
+      });
+    });
+
+    // 選「跟隨手機」時，使用者在手機設定裡切深色，畫面要當場跟著變
+    try {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const onChange = function () { if (JZ.getTheme() === 'auto') refreshTheme(); };
+      if (mq.addEventListener) mq.addEventListener('change', onChange);
+      else if (mq.addListener) mq.addListener(onChange); // 舊版 Safari 只認得這個寫法
+    } catch (e) { /* 瀏覽器不支援就算了，不影響使用 */ }
+
+    refreshTheme();
+  }
+
   // ---------- 抓資料主流程 ----------
 
-  // force = true 代表使用者主動要抓（略過畫面上的節流提示，但 api 內不阻擋）
-  function loadData(force) {
+  // 抓一次最新資料，然後把整個畫面重畫。
+  // 抓失敗不用另外跳訊息——上方的離線橫幅本來就會顯示「現在看的是哪個時間的舊資料」。
+  function loadData() {
     return JZ.fetchAll().then(function (res) {
       if (res.data) {
         state.data = res.data;
@@ -632,11 +921,6 @@
       }
       // 全畫面重繪
       renderAll();
-
-      // 抓取結果的提示（只有非成功且不是「沒設定」時，額外提示）
-      if (!res.ok && res.message && !force) {
-        // 靜默處理，離線橫幅已經會顯示
-      }
       return res;
     });
   }
@@ -645,8 +929,9 @@
     renderDataTimeBanner();
     renderOverview();
     initDetailFilters();
-    renderDetailList();
+    applyDetailFilter();
     refreshRecordAccounts();
+    renderQuickItems();
     // 圖表只有在圖表頁可見時畫，這裡若正在圖表頁就順手重畫
     if ($('#tab-charts') && $('#tab-charts').classList.contains('active')) {
       renderCharts();
@@ -705,6 +990,18 @@
 
   // ---------- 啟動 ----------
 
+  // 讀網址上的 ?tab=xxx，決定一打開要停在哪一頁；沒指定或名字不認得就回傳空字串
+  function startTabFromUrl() {
+    const VALID = ['overview', 'charts', 'detail', 'record', 'settings'];
+    try {
+      const m = window.location.search.match(/[?&]tab=([a-z]+)/i);
+      const name = m ? m[1].toLowerCase() : '';
+      return VALID.indexOf(name) >= 0 ? name : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
   function init() {
     // 版本號
     $all('.app-version').forEach(function (el) { el.textContent = APP_VERSION; });
@@ -714,15 +1011,42 @@
       btn.addEventListener('click', function () { switchTab(btn.getAttribute('data-tab')); });
     });
 
-    // 明細篩選事件
+    // 明細篩選事件：使用者一動就記下來（touched），
+    // 這樣跑去記一筆帳、資料重新載入回來時，篩選條件不會被重設掉
     ['#detail-month', '#detail-cat'].forEach(function (sel) {
       const el = $(sel);
-      if (el) el.addEventListener('change', renderDetailList);
+      if (el) el.addEventListener('change', function () {
+        detailFilter.touched = true;
+        applyDetailFilter();
+      });
     });
-    if ($('#detail-kw')) $('#detail-kw').addEventListener('input', renderDetailList);
+    // 搜尋框：等手停下來 250 毫秒再開始搜，不要每打一個字就整份重畫。
+    // 中文輸入法選字過程會觸發很多次，這個延遲特別有感。
+    if ($('#detail-kw')) {
+      let kwTimer = null;
+      $('#detail-kw').addEventListener('input', function () {
+        if (kwTimer) clearTimeout(kwTimer);
+        kwTimer = setTimeout(function () {
+          detailFilter.touched = true;
+          applyDetailFilter();
+        }, 250);
+      });
+    }
+    if ($('#detail-more')) $('#detail-more').addEventListener('click', loadMoreDetail);
+
+    // 總覽的專案標籤可以點：點下去跳到明細並自動篩出這個標籤
+    const tagListEl = $('#tag-list');
+    if (tagListEl) {
+      tagListEl.addEventListener('click', function (e) {
+        const row = e.target && e.target.closest ? e.target.closest('.tag-row') : null;
+        const tag = row ? row.getAttribute('data-tag') : '';
+        if (tag) jumpToTag(tag);
+      });
+    }
 
     initRecordForm();
     initSettings();
+    initTheme();
     loadSettingsIntoForm();
 
     // 先用快取畫一次（開得快、離線也有東西看）
@@ -738,10 +1062,12 @@
       switchTab('settings');
       setSettingsMsg('第一次使用請填入連線資訊：查詢 API 網址與唯讀密語（記帳功能另外填下面兩欄）。', '');
     } else {
-      // 打開 app 直接停在記帳頁，這是最常用的操作；總覽/圖表/明細仍在下方導覽列一鍵可達
-      switchTab('record');
+      // 打開 app 直接停在記帳頁，這是最常用的操作；總覽/圖表/明細仍在下方導覽列一鍵可達。
+      // 也支援用網址參數指定，例如 index.html?tab=overview 會直接開總覽——
+      // 你可以用 Safari 的「加入主畫面」多做一顆圖示，等於自己 DIY 一個捷徑。
+      switchTab(startTabFromUrl() || 'record');
       // 有設定就抓一次最新資料
-      loadData(false);
+      loadData();
     }
 
     initServiceWorker();

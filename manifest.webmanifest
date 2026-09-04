@@ -29,5 +29,32 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "id": "./index.html",
+  "shortcuts": [
+    {
+      "name": "記一筆帳",
+      "short_name": "記帳",
+      "url": "./index.html?tab=record",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "看總覽",
+      "short_name": "總覽",
+      "url": "./index.html?tab=overview",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }
