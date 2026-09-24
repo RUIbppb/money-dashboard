@@ -24,6 +24,10 @@
   --warn-border: #E3D5B8;
   --tint: #F3EEE4;        /* 淡米色底：離線橫幅、辨識狀態列、記帳未設定提示 */
   --tint-2: #EFEBE4;      /* 稍深一階的底：一般記帳／轉帳的切換列 */
+  --bar-track: #EFEBE4;   /* 預算進度條的底軌 */
+  --bar-ok: #7C8C6E;      /* 還很安全（未達 80%）暗綠 */
+  --bar-near: #BE8A4E;    /* 快用完了（80～99%）土橘 */
+  --bar-over: #B0685C;    /* 超支了 紅棕 */
   --on-accent: #FFFFFF;   /* 壓在深色強調底上的文字色 */
   --radius: 10px;
   --gap: 16px;
@@ -58,6 +62,10 @@
   --warn-border: #4D4132;
   --tint: #332F29;
   --tint-2: #3A362F;
+  --bar-track: #3A362F;   /* 暗底上的進度條底軌 */
+  --bar-ok: #93A484;      /* 三個狀態色都要提亮，暗底上原本的深色看不出來 */
+  --bar-near: #D4A368;
+  --bar-over: #C97F72;
   --on-accent: #1F1E1C;   /* 壓在淺色強調底上的字，跟著反轉成深色 */
 }
 
@@ -191,6 +199,131 @@ input, select, button, textarea {
 .row-name { font-size: 12pt; }
 .row-val { font-size: 12pt; font-weight: 600; }
 .row-val.neg { color: var(--neg); }
+/* ---------- 本月預算進度條 ----------
+ * 刻意做得很扁（6px）、沒有漸層也沒有動畫。
+ * 這一區的目的是「掃一眼就知道哪一類快爆了」，不是展示圖表。
+ */
+.budget-row { padding: 9px 0; border-bottom: 1px solid var(--border-soft); }
+.budget-row:last-child { border-bottom: none; }
+.budget-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.budget-cat { font-size: 12pt; }
+.budget-num { font-size: 10.5pt; color: var(--text-sub); }
+.budget-num .budget-pct { margin-left: 6px; font-weight: 600; }
+.budget-track {
+  height: 6px;
+  background: var(--bar-track);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.budget-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--bar-ok);
+}
+.budget-fill.near { background: var(--bar-near); }
+.budget-fill.over { background: var(--bar-over); }
+/* 超支時連數字一起變色，不要只靠一條細線傳達壞消息 */
+.budget-row.over .budget-cat,
+.budget-row.over .budget-pct { color: var(--bar-over); font-weight: 600; }
+.budget-row.near .budget-pct { color: var(--bar-near); }
+
+.budget-note {
+  margin-top: 10px;
+  font-size: 10pt;
+  color: var(--text-sub);
+  line-height: 1.6;
+}
+
+/* ---------- 離線排隊提示 ---------- */
+.queue-banner {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: var(--gap);
+  font-size: 11pt;
+  line-height: 1.7;
+}
+
+/* ---------- 報表：分類走勢 ---------- */
+.trend-summary {
+  margin-top: 10px;
+  font-size: 10.5pt;
+  color: var(--text-sub);
+  line-height: 1.6;
+}
+
+/* ---------- 報表：跟上個月比 ---------- */
+.cmp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.cmp-row:last-child { border-bottom: none; }
+.cmp-cat { font-size: 12pt; flex: 0 0 56px; }
+.cmp-nums {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 12pt;
+  font-weight: 600;
+}
+.cmp-prev { font-size: 9.5pt; color: var(--text-sub); font-weight: 400; margin-top: 2px; }
+/* 支出變多是壞消息用紅棕，變少是好消息用暗綠——跟收支的顏色邏輯反過來，
+   因為這裡看的是「花費」，花得少才是好事 */
+.cmp-up, .cmp-down, .cmp-flat, .cmp-new {
+  flex: 0 0 62px;
+  text-align: right;
+  font-size: 11pt;
+  font-weight: 600;
+}
+.cmp-up { color: var(--neg); }
+.cmp-down { color: var(--pos); }
+.cmp-flat, .cmp-new { color: var(--text-sub); font-weight: 400; font-size: 10.5pt; }
+
+/* ---------- 報表：預算達成率 ---------- */
+.achieve-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.achieve-row:last-child { border-bottom: none; }
+.achieve-month { font-size: 11.5pt; flex: 0 0 70px; color: var(--text-sub); }
+.achieve-score { font-size: 13pt; font-weight: 700; flex: 0 0 52px; }
+.achieve-row.good .achieve-score { color: var(--pos); }
+.achieve-note { font-size: 10.5pt; color: var(--text-sub); flex: 1; text-align: right; }
+
+/* ---------- 總覽：月底預估 ---------- */
+.forecast-main { font-size: 24pt; font-weight: 700; letter-spacing: 1px; }
+.forecast-sub { font-size: 10.5pt; color: var(--text-sub); margin-top: 2px; }
+.forecast-detail { margin-top: 14px; }
+.forecast-detail > div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11pt;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.forecast-detail > div:last-child { border-bottom: none; }
+.forecast-detail span:first-child { color: var(--text-sub); }
+.forecast-note {
+  margin-top: 12px;
+  font-size: 9.5pt;
+  color: var(--text-sub);
+  line-height: 1.6;
+}
+
 .tag-name { color: var(--accent-dark); }
 /* 標籤列可以點，點了會跳到明細並自動篩出這個標籤 */
 .tag-row { cursor: pointer; }

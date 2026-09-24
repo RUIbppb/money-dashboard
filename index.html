@@ -77,6 +77,19 @@
           </div>
         </div>
 
+        <!-- 本月預算：只顯示有設預算的分類，沒設的（例如貸款）不會出現 -->
+        <div id="budget-section" class="block" style="display:none">
+          <div class="block-title">本月預算</div>
+          <div id="budget-list" class="budget-list"></div>
+          <div id="budget-note" class="budget-note" style="display:none"></div>
+        </div>
+
+        <!-- 月底餘額推估：照目前的花法，月底大概剩多少 -->
+        <div id="forecast-section" class="block" style="display:none">
+          <div class="block-title">月底預估</div>
+          <div id="forecast-body"></div>
+        </div>
+
         <div class="block">
           <div class="block-title">帳戶餘額</div>
           <div id="account-list" class="list"></div>
@@ -98,6 +111,23 @@
           </div>
           <div id="chart-pie-legend" class="pie-legend"></div>
         </div>
+        <!-- 分類走勢：一次看一個分類的多月變化，回答「我有沒有在變好」 -->
+        <div class="block">
+          <div class="block-title">分類走勢</div>
+          <select id="trend-cat" class="input"></select>
+          <div class="chart-box">
+            <canvas id="chart-trend"></canvas>
+            <div id="chart-trend-empty" class="empty-hint" style="display:none"></div>
+          </div>
+          <div id="trend-summary" class="trend-summary" style="display:none"></div>
+        </div>
+
+        <!-- 跟上個月比：回答「錢都花去哪了」 -->
+        <div class="block">
+          <div class="block-title">跟上個月比</div>
+          <div id="compare-list" class="compare-list"></div>
+        </div>
+
         <div class="block">
           <div class="block-title">資產成長</div>
           <div class="chart-box">
@@ -111,6 +141,22 @@
             <canvas id="chart-bar"></canvas>
             <div id="chart-bar-empty" class="empty-hint" style="display:none"></div>
           </div>
+        </div>
+
+        <!-- 年度累計：今年到現在，錢的大方向在哪 -->
+        <div class="block">
+          <div class="block-title"><span id="year-title">年度支出</span></div>
+          <div class="chart-box">
+            <canvas id="chart-year"></canvas>
+            <div id="chart-year-empty" class="empty-hint" style="display:none"></div>
+          </div>
+          <div id="chart-year-legend" class="pie-legend"></div>
+        </div>
+
+        <!-- 預算達成率：要累積 2～3 個月才看得出東西 -->
+        <div class="block">
+          <div class="block-title">預算達成率</div>
+          <div id="achieve-list" class="achieve-list"></div>
         </div>
       </section>
 
@@ -132,6 +178,9 @@
       <!-- ===== 記帳 ===== -->
       <section id="tab-record" class="tab-section">
         <div id="record-gate" class="gate-hint" style="display:none"></div>
+
+        <!-- 沒網路時存下來、還沒補送的帳 -->
+        <div id="queue-banner" class="queue-banner" style="display:none"></div>
 
         <div id="record-forms" style="display:none">
           <div class="mode-switch">
@@ -253,7 +302,7 @@
 
         <div class="footer">
           <div>製作人Rui / Maker Rui</div>
-          <div>版本 <span class="app-version">v2.0</span></div>
+          <div>版本 <span class="app-version">v3.0</span></div>
         </div>
       </section>
 

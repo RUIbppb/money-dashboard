@@ -20,7 +20,8 @@ const JZ = (function () {
     cache: 'jz_data_cache',      // 上次成功抓回的整包資料
     lastFetch: 'jz_last_fetch',  // 上次成功抓取的毫秒時間戳（給 60 秒節流用）
     theme: 'jz_theme',           // 深淺色偏好：auto（跟隨手機）／light／dark
-    recentItems: 'jz_recent_items' // 這支手機上最近按過送出的項目（常用項目的備援）
+    recentItems: 'jz_recent_items', // 這支手機上最近按過送出的項目（常用項目的備援）
+    queue: 'jz_pending_queue'    // 沒網路時先存起來、等有網路再補送的帳
   };
 
   // ---------- 最近用過的項目 ----------
@@ -210,10 +211,17 @@ const JZ = (function () {
     }
 
     // 組網址：token 與 action 都做編碼避免特殊字元出錯
+    //
+    // months=all 一定要帶。後端從契約 v1.1 起，沒帶 months 時只回最近 3 個月的明細；
+    // 而明細頁的「全部月份」下拉是直接從拿到的明細反推出來的，
+    // 少帶這個參數，畫面上的歷史月份就會默默消失，而且不會有任何錯誤訊息。
+    //
+    // 之後做完「明細頁分月載入」的介面，這裡才改成預設 3 個月、需要時再加載。
     const url = s.readUrl +
       (s.readUrl.indexOf('?') >= 0 ? '&' : '?') +
       'token=' + encodeURIComponent(s.readToken) +
-      '&action=all';
+      '&action=all' +
+      '&months=all';
 
     return fetchWithTimeout(url, { method: 'GET', redirect: 'follow' }, READ_TIMEOUT_MS)
       .then(function (resp) {
@@ -323,6 +331,120 @@ const JZ = (function () {
       });
   }
 
+  /* ---------- 離線記帳排隊 ----------
+   *
+   * 沒網路的時候（地下室、山區、出勤中）先把帳存在手機裡，有網路再自動補送。
+   *
+   * 【什麼情況才可以排隊——這是最重要的一條】
+   * **只有在瀏覽器明確告訴我們「現在離線」時才排隊。**
+   *
+   * 為什麼要卡這麼死？因為「送出去了但沒收到回應」跟「根本沒送出去」
+   * 從程式的角度看很像，但後果差很多——前者補送會變成兩筆一模一樣的帳，
+   * 而重複的帳要他自己打開試算表找出來刪掉。
+   *
+   * 逾時的情況上面 submitEntry 已經處理了：明講「可能已經記進去，請先確認」，
+   * 絕不自動重送。這裡維持同一條紀律。
+   */
+
+  function getQueue() {
+    try {
+      const raw = localStorage.getItem(KEY.queue);
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveQueue(list) {
+    try {
+      localStorage.setItem(KEY.queue, JSON.stringify(list));
+    } catch (e) {
+      // 空間不足就算了，至少不要讓畫面掛掉
+    }
+  }
+
+  /** 把一筆帳排進隊伍。回傳排隊後總共有幾筆。 */
+  function pushQueue(payload, label) {
+    const list = getQueue();
+    list.push({
+      id: 'q' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+      savedAt: new Date().toISOString(),
+      label: label || '',
+      payload: payload
+    });
+    saveQueue(list);
+    return list.length;
+  }
+
+  function queueCount() {
+    return getQueue().length;
+  }
+
+  function clearQueue() {
+    saveQueue([]);
+  }
+
+  /** 現在是不是確定離線。瀏覽器不支援 onLine 時一律當成「在線」（寧可不排隊） */
+  function isDefinitelyOffline() {
+    return (typeof navigator !== 'undefined' && navigator.onLine === false);
+  }
+
+  /*
+   * 把排隊中的帳一筆一筆送出去。
+   *
+   * 一筆失敗就停下來，不繼續送後面的——
+   * 因為多半是網路又斷了，硬送只會把整批都變成「狀態不明」。
+   * 成功的從隊伍移除，失敗的留著下次再試。
+   *
+   * 回傳 { sent, failed, remaining, uncertain }
+   *   uncertain 是「逾時、不確定有沒有寫進去」的筆數，這種會從隊伍移除並要使用者自己確認，
+   *   因為留著下次重送的風險比漏掉更大。
+   */
+  function flushQueue() {
+    const list = getQueue();
+    if (list.length === 0) {
+      return Promise.resolve({ sent: 0, failed: 0, remaining: 0, uncertain: 0 });
+    }
+    if (!hasWriteConfig()) {
+      return Promise.resolve({ sent: 0, failed: 0, remaining: list.length, uncertain: 0 });
+    }
+
+    let sent = 0;
+    let uncertain = 0;
+
+    function step(index) {
+      if (index >= list.length) {
+        return Promise.resolve();
+      }
+      return submitEntry(list[index].payload).then(function (res) {
+        if (res.ok) {
+          sent += 1;
+          return step(index + 1);
+        }
+        if (res.timeout) {
+          // 可能寫進去了。留著會有重複的風險，所以拿掉並回報給使用者自己確認。
+          uncertain += 1;
+          return step(index + 1);
+        }
+        // 真的送不出去：停下來，這一筆和後面的都留著
+        return Promise.resolve();
+      });
+    }
+
+    return step(0).then(function () {
+      const processed = sent + uncertain;
+      const rest = list.slice(processed);
+      saveQueue(rest);
+      return {
+        sent: sent,
+        uncertain: uncertain,
+        failed: rest.length,
+        remaining: rest.length
+      };
+    });
+  }
+
   // ---------- 測試連線 ----------
 
   // 打一次查詢 API，回傳 { ok, message }
@@ -348,6 +470,12 @@ const JZ = (function () {
     saveSettings: saveSettings,
     hasReadConfig: hasReadConfig,
     hasWriteConfig: hasWriteConfig,
+    // 離線排隊
+    pushQueue: pushQueue,
+    queueCount: queueCount,
+    flushQueue: flushQueue,
+    clearQueue: clearQueue,
+    isDefinitelyOffline: isDefinitelyOffline,
     getCachedData: getCachedData,
     secondsUntilCanRefresh: secondsUntilCanRefresh,
     fetchAll: fetchAll,

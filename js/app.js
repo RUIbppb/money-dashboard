@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v2.0';
+  const APP_VERSION = 'v3.0';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -178,6 +178,77 @@
    * 支付帳戶名稱打錯字時，那幾筆的錢會「不見」——因為帳戶餘額只算得到名字對得上的帳。
    * 這裡把它抓出來、講清楚是哪個名字打錯。算法見 pure.js 的 computeAccountMismatch。
    */
+  /* ---------- 本月預算進度條 ----------
+   * 資料來自唯讀 API 的 budgets（契約 2.6 節），後端已經算好「用了多少」。
+   * 沒設預算的分類（例如貸款）根本不會出現在那份資料裡，所以這裡不用另外過濾。
+   */
+  function renderBudget() {
+    const wrap = $('#budget-section');
+    const list = $('#budget-list');
+    const note = $('#budget-note');
+    if (!wrap || !list) return;
+
+    const d = state.data;
+    const currentMonth = taipeiCurrentMonth();
+    const rows = (d && d.budgets ? d.budgets : []).filter(function (b) {
+      return b && b.month === currentMonth && Number(b.limit) > 0;
+    });
+
+    // 還沒設定預算就整區不顯示，不要放一個空殼在那邊讓人以為壞了
+    if (rows.length === 0) {
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = '';
+
+    // 超支的排最前面，其次是用得最兇的——最該被看到的放最上面
+    rows.sort(function (a, b) {
+      return (Number(b.ratio) || 0) - (Number(a.ratio) || 0);
+    });
+
+    let html = '';
+    let anyInherited = false;
+
+    rows.forEach(function (b) {
+      const limit = Number(b.limit) || 0;
+      const spent = Number(b.spent) || 0;
+      const percent = limit > 0 ? Math.round((spent / limit) * 100) : 0;
+      if (b.inherited) anyInherited = true;
+
+      // 狀態分三段，跟超支提醒用的是同一組門檻，兩邊講的話才會一致
+      let level = '';
+      if (percent >= 100) level = 'over';
+      else if (percent >= 80) level = 'near';
+
+      // 條子最長畫到 100%，超支的部分靠顏色和數字表達，不要讓它衝出框
+      const width = Math.min(percent, 100);
+
+      html += '<div class="budget-row ' + level + '">' +
+        '<div class="budget-top">' +
+          '<span class="budget-cat">' + escapeHtml(b.category) + '</span>' +
+          '<span class="budget-num">' + money(spent) + ' / ' + money(limit) +
+            '<span class="budget-pct">' + percent + '%</span>' +
+          '</span>' +
+        '</div>' +
+        '<div class="budget-track">' +
+          '<div class="budget-fill ' + level + '" style="width:' + width + '%"></div>' +
+        '</div>' +
+      '</div>';
+    });
+
+    list.innerHTML = html;
+
+    // 沿用上個月的數字時要講一聲，免得他以為自己這個月設過了
+    if (note) {
+      if (anyInherited) {
+        note.textContent = '這個月還沒設定預算，先沿用上個月的數字。想調整就到試算表的「預算」分頁改。';
+        note.style.display = '';
+      } else {
+        note.style.display = 'none';
+      }
+    }
+  }
+
   function renderAccountWarning(d) {
     const el = $('#account-warning');
     if (!el) return;
@@ -242,6 +313,31 @@
    * ⚠️ iPhone 的 Safari 不支援網頁震動（這是蘋果的平台限制，不是程式問題），
    *    所以在 iPhone 上只會看到閃綠色；Android 兩個都有。
    */
+  /* ---------- 項目記憶分類 ----------
+   * 打「午餐」就把上次記午餐時用的分類和帳戶帶出來，少點兩下。
+   * 資料是從流水帳推出來的（見 pure.js 的 itemMemory），
+   * 所以連用 iPhone 捷徑記的帳也算數，不是只記這個 App 送出過的。
+   */
+  function applyItemMemory(itemName) {
+    const name = String(itemName || '').trim();
+    if (name === '' || !state.data || !window.JZPure) return;
+
+    const memory = JZPure.itemMemory(state.data.transactions || []);
+    const hit = memory[name.toLowerCase()];
+    if (!hit) return;
+
+    const catSel = $('#r-category');
+    const accSel = $('#r-account');
+
+    // 只在「選項真的存在」時才設，避免設成一個不存在的值變成空白
+    if (catSel && hit.category && hasOption(catSel, hit.category)) {
+      catSel.value = hit.category;
+    }
+    if (accSel && hit.account && hasOption(accSel, hit.account)) {
+      accSel.value = hit.account;
+    }
+  }
+
   function celebrate(inputEl) {
     try {
       if (navigator.vibrate) navigator.vibrate(30);
@@ -274,6 +370,266 @@
     JZCharts.drawCategoryPie('chart-pie', catTotals);
     JZCharts.drawAssetLine('chart-line', d.monthly || []);
     JZCharts.drawMonthlyBar('chart-bar', d.monthly || []);
+
+    renderTrend();
+    renderCompare();
+    renderYearPie();
+    renderAchievement();
+  }
+
+  /* ---------- 分類走勢 ----------
+   * 一次只畫一個分類。下拉選單選哪個就畫哪個，選擇記在 trendCategory 裡，
+   * 資料重新整理時不會被重設掉。
+   */
+  var trendCategory = '';
+  var TREND_MONTHS = 6;
+
+  function renderTrend() {
+    const d = state.data;
+    const sel = $('#trend-cat');
+    const summary = $('#trend-summary');
+    if (!sel || !d) return;
+
+    const trend = JZ_PURE().categoryTrend(d.transactions || [], {
+      untilMonth: taipeiCurrentMonth(),
+      months: TREND_MONTHS
+    });
+
+    // 只列出「這段期間真的有花過錢」的分類，空的分類放進選單只是干擾
+    const names = Object.keys(trend.series).filter(function (name) {
+      return trend.series[name].some(function (v) { return v > 0; });
+    });
+    // 依 EXPENSE_CATEGORIES 的順序排，跟圓餅圖、預算區的順序一致
+    names.sort(function (a, b) {
+      return EXPENSE_CATEGORIES.indexOf(a) - EXPENSE_CATEGORIES.indexOf(b);
+    });
+
+    if (names.length === 0) {
+      sel.innerHTML = '<option value="">（還沒有支出資料）</option>';
+      JZCharts.drawCategoryTrend('chart-trend', [], [], '');
+      if (summary) summary.style.display = 'none';
+      return;
+    }
+
+    if (names.indexOf(trendCategory) < 0) trendCategory = names[0];
+
+    sel.innerHTML = names.map(function (n) {
+      return '<option value="' + escapeHtml(n) + '">' + escapeHtml(n) + '</option>';
+    }).join('');
+    sel.value = trendCategory;
+
+    const values = trend.series[trendCategory] || [];
+    JZCharts.drawCategoryTrend('chart-trend', trend.months, values, trendCategory);
+
+    // 圖看完了還是要有一句話告訴他「所以呢」——
+    // 成就感才是讓人繼續記帳的燃料，光有折線不夠
+    if (summary) {
+      const first = values[0] || 0;
+      const last = values[values.length - 1] || 0;
+      let text;
+      if (first === 0) {
+        text = '這段期間的第一個月沒有紀錄，看不出趨勢。';
+      } else if (last < first) {
+        const cut = Math.round(((first - last) / first) * 100);
+        text = '跟 ' + trend.months[0] + ' 比，' + trendCategory + '少了 ' +
+               money(first - last) + ' 元（少 ' + cut + '%）。';
+      } else if (last > first) {
+        const up = Math.round(((last - first) / first) * 100);
+        text = '跟 ' + trend.months[0] + ' 比，' + trendCategory + '多了 ' +
+               money(last - first) + ' 元（多 ' + up + '%）。';
+      } else {
+        text = '跟 ' + trend.months[0] + ' 比幾乎沒變。';
+      }
+      summary.textContent = text + '（本月還沒過完，最後一個月會偏低）';
+      summary.style.display = '';
+    }
+  }
+
+  /* ---------- 跟上個月比 ---------- */
+  function renderCompare() {
+    const d = state.data;
+    const wrap = $('#compare-list');
+    if (!wrap || !d) return;
+
+    const rows = JZ_PURE().compareMonths(d.transactions || [], taipeiCurrentMonth());
+    if (rows.length === 0) {
+      wrap.innerHTML = '<div class="empty-hint">還沒有可以比較的資料。</div>';
+      return;
+    }
+
+    wrap.innerHTML = rows.map(function (r) {
+      let badge;
+      if (r.previous === 0) {
+        // 從 0 變成有，算不出百分比。硬寫「增加 100%」是騙人的
+        badge = '<span class="cmp-new">新增</span>';
+      } else if (r.delta > 0) {
+        badge = '<span class="cmp-up">▲ ' + Math.abs(Math.round(r.percent)) + '%</span>';
+      } else if (r.delta < 0) {
+        badge = '<span class="cmp-down">▼ ' + Math.abs(Math.round(r.percent)) + '%</span>';
+      } else {
+        badge = '<span class="cmp-flat">持平</span>';
+      }
+
+      return '<div class="cmp-row">' +
+        '<span class="cmp-cat">' + escapeHtml(r.category) + '</span>' +
+        '<span class="cmp-nums">' + money(r.current) +
+          '<span class="cmp-prev">上月 ' + money(r.previous) + '</span></span>' +
+        badge +
+      '</div>';
+    }).join('');
+  }
+
+  /* ---------- 年度累計圓餅 ---------- */
+  function renderYearPie() {
+    const d = state.data;
+    if (!d) return;
+
+    const year = taipeiCurrentMonth().slice(0, 4);
+    const titleEl = $('#year-title');
+    if (titleEl) titleEl.textContent = year + ' 年支出';
+
+    const totals = JZ_PURE().yearTotals(d.transactions || [], year);
+    // 圓餅旁的文字清單由 drawCategoryPie 自己填進 chart-year-legend，這裡不用另外處理
+    JZCharts.drawCategoryPie('chart-year', totals, year + ' 年還沒有支出紀錄');
+  }
+
+  /* ---------- 預算達成率 ---------- */
+  function renderAchievement() {
+    const d = state.data;
+    const wrap = $('#achieve-list');
+    if (!wrap || !d) return;
+
+    const rows = JZ_PURE().budgetAchievement(d.budgets || [], taipeiCurrentMonth());
+
+    // 第一個月打開一定是空的，這是正常的，要講清楚免得他以為壞了
+    if (rows.length === 0) {
+      wrap.innerHTML = '<div class="empty-hint">' +
+        '要等這個月過完才有第一筆紀錄。<br>' +
+        '累積 2～3 個月之後，這裡會顯示你每個月守住了幾個分類。' +
+        '</div>';
+      return;
+    }
+
+    // 新到舊，最近的月份先看到
+    const ordered = rows.slice().reverse();
+    wrap.innerHTML = ordered.map(function (r) {
+      const allKept = r.kept === r.total;
+      const overText = r.over.length > 0 ? '超支：' + r.over.join('、') : '全部守住';
+      return '<div class="achieve-row' + (allKept ? ' good' : '') + '">' +
+        '<span class="achieve-month">' + escapeHtml(r.month) + '</span>' +
+        '<span class="achieve-score">' + r.kept + ' / ' + r.total + '</span>' +
+        '<span class="achieve-note">' + escapeHtml(overText) + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  /* ---------- 月底預估 ----------
+   * 算法故意很笨：到今天為止的平均日花費 × 剩下的天數，再扣掉還沒繳的固定支出。
+   * 不做迴歸也不看季節性——資料量太小，複雜的模型只會給出假精準。
+   */
+  function renderForecast() {
+    const d = state.data;
+    const wrap = $('#forecast-section');
+    const body = $('#forecast-body');
+    if (!wrap || !body) return;
+
+    /* 資料不夠的時候不要整區藏起來，要留著並說明原因。
+     * 藏起來的話，使用者根本分不出「還沒到時候」跟「功能壞了」，
+     * 只會覺得東西怎麼不見了。 */
+    function showHint(text) {
+      wrap.style.display = '';
+      body.innerHTML = '<div class="empty-hint">' + escapeHtml(text) + '</div>';
+    }
+
+    if (!d) {
+      showHint('還沒有資料，請先到設定頁連線。');
+      return;
+    }
+
+    const cm = taipeiCurrentMonth();
+    const now = taipeiToday();
+
+    // 這個月已經花掉的「可控支出」＝有設預算的分類的支出總和。
+    // 貸款那種固定支出不算進日均，不然日均會被月初的大筆扣款灌爆。
+    const budgetRows = (d.budgets || []).filter(function (b) { return b.month === cm; });
+    if (budgetRows.length === 0) {
+      showHint('要先在試算表的「預算」分頁設定各分類的預算，這裡才算得出月底大概剩多少。');
+      return;
+    }
+
+    let spentSoFar = 0;
+    budgetRows.forEach(function (b) { spentSoFar += Number(b.spent) || 0; });
+
+    // 還沒繳的固定支出
+    let pendingFixed = 0;
+    (d.recurring || []).forEach(function (r) {
+      if (!r.done_this_month) {
+        const amount = (!r.fixed && Number(r.last_amount) > 0) ? r.last_amount : r.amount;
+        pendingFixed += Number(amount) || 0;
+      }
+    });
+
+    let totalAssets = 0;
+    (d.accounts || []).forEach(function (a) { totalAssets += Number(a.balance) || 0; });
+
+    const forecast = JZ_PURE().forecastMonthEnd({
+      totalAssets: totalAssets,
+      spentSoFar: spentSoFar,
+      dayOfMonth: now.day,
+      daysInMonth: now.daysInMonth,
+      pendingFixed: pendingFixed
+    });
+
+    if (!forecast) {
+      // 月初前兩天樣本太少，推估出來只會嚇到自己。
+      // 但還是要說一聲，不然他會以為壞了。
+      const wait = Math.max(3 - now.day, 0);
+      showHint(
+        '月初資料太少，算出來會亂跳，所以先不顯示。' +
+        (wait > 0 ? '再過 ' + wait + ' 天就會出現。' : '')
+      );
+      return;
+    }
+    wrap.style.display = '';
+
+    let html = '<div class="forecast-main">' + money(forecast.projectedEnd) + '</div>' +
+      '<div class="forecast-sub">照目前的花法，' + now.daysInMonth + ' 號月底大概剩這麼多</div>' +
+      '<div class="forecast-detail">' +
+        '<div><span>目前總資產</span><span>' + money(totalAssets) + '</span></div>' +
+        '<div><span>平均每天花</span><span>' + money(forecast.dailyAverage) + '</span></div>' +
+        '<div><span>剩下 ' + forecast.daysLeft + ' 天預估再花</span><span>−' + money(forecast.projectedSpend) + '</span></div>';
+    if (forecast.pendingFixed > 0) {
+      html += '<div><span>還沒繳的固定支出</span><span>−' + money(forecast.pendingFixed) + '</span></div>';
+    }
+    html += '</div>' +
+      '<div class="forecast-note">這是最笨的算法：平均日花費乘上剩餘天數。' +
+      '月初算出來的數字會特別不準，參考就好。</div>';
+
+    body.innerHTML = html;
+  }
+
+  /** 台北時間的今天：幾號、這個月有幾天 */
+  function taipeiToday() {
+    const s = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+    const parts = s.split('-');
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    // 下個月的第 0 天＝這個月的最後一天
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return { year: year, month: month, day: day, daysInMonth: daysInMonth };
+  }
+
+  /** pure.js 沒載入時給一組什麼都不做的替身，不要讓整個畫面掛掉 */
+  function JZ_PURE() {
+    if (window.JZPure) return window.JZPure;
+    return {
+      categoryTrend: function () { return { months: [], series: {} }; },
+      compareMonths: function () { return []; },
+      yearTotals: function () { return {}; },
+      budgetAchievement: function () { return []; },
+      forecastMonthEnd: function () { return null; }
+    };
   }
 
   // ---------- 明細頁 ----------
@@ -525,6 +881,75 @@
     });
   }
 
+  /* ---------- 從網址預填記帳內容 ----------
+   * Discord 的定期定額提醒會附一個這樣的連結：
+   *   ...?tab=record&amount=13304&item=車貸&cat=貸款&acct=玉山
+   * 點下去就直接開記帳頁、內容填好，按送出就完成。
+   *
+   * 兩條規矩：
+   *  1. **只預填，絕不自動送出。** 帳是錢的事，一定要人按下去才算數。
+   *  2. 只填一次。之後資料重新整理時不可以再蓋一遍，
+   *     不然他改到一半被洗掉會很火大。
+   */
+  var recordPrefill = null;      // 開頁時解析出來的參數
+  var prefillApplied = false;    // 填過了沒
+
+  function readRecordPrefill() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var data = {
+        amount: params.get('amount') || '',
+        item: params.get('item') || '',
+        category: params.get('cat') || '',
+        account: params.get('acct') || ''
+      };
+      // 四個都空就當作沒有要預填
+      if (!data.amount && !data.item && !data.category && !data.account) return null;
+      return data;
+    } catch (e) {
+      return null;  // 舊瀏覽器不支援 URLSearchParams 就算了，不要讓整個 App 掛掉
+    }
+  }
+
+  function applyRecordPrefill() {
+    if (!recordPrefill || prefillApplied) return;
+
+    // 帳戶與分類是下拉選單，要等選項都生出來才填得進去
+    var accountSel = $('#r-account');
+    if (recordPrefill.account && (!accountSel || accountSel.options.length === 0)) return;
+
+    var amountEl = $('#r-amount');
+    var itemEl = $('#r-item');
+    var catSel = $('#r-category');
+
+    if (amountEl && recordPrefill.amount) {
+      var amount = Number(recordPrefill.amount);
+      if (isFinite(amount) && amount > 0) amountEl.value = amount;
+    }
+    if (itemEl && recordPrefill.item) itemEl.value = recordPrefill.item;
+
+    // 下拉選單只在「真的有這個選項」時才設，避免設成一個不存在的值變空白
+    if (catSel && recordPrefill.category) {
+      if (hasOption(catSel, recordPrefill.category)) catSel.value = recordPrefill.category;
+    }
+    if (accountSel && recordPrefill.account) {
+      if (hasOption(accountSel, recordPrefill.account)) accountSel.value = recordPrefill.account;
+    }
+
+    prefillApplied = true;
+
+    // 提示他這是帶進來的，要自己確認金額——
+    // 電話費、房貸這種每月金額都不一樣，照著送出就記錯了
+    setRecordMsg('已幫你填好，確認金額沒問題再按送出。', 'ok');
+  }
+
+  function hasOption(selectEl, value) {
+    for (var i = 0; i < selectEl.options.length; i++) {
+      if (selectEl.options[i].value === value) return true;
+    }
+    return false;
+  }
+
   function initRecordForm() {
     // 分類下拉
     // 分類下拉分成「支出」「收入」兩群，不要 9 個混在一起滑到眼花
@@ -538,14 +963,26 @@
       catSel.innerHTML = html;
     }
 
-    // 常用項目：點一下就把項目填好
+    // 常用項目：點一下就把項目填好，順便把上次用的分類與帳戶也帶出來
     const quickEl = $('#r-quick');
     if (quickEl) {
       quickEl.addEventListener('click', function (e) {
         const btn = e.target && e.target.closest ? e.target.closest('.quick-item') : null;
         if (!btn) return;
         const itemEl = $('#r-item');
-        if (itemEl) { itemEl.value = btn.getAttribute('data-item') || ''; itemEl.focus(); }
+        if (itemEl) {
+          itemEl.value = btn.getAttribute('data-item') || '';
+          itemEl.focus();
+          applyItemMemory(itemEl.value);
+        }
+      });
+    }
+
+    // 自己打字的情況：離開項目欄時也試著帶出上次的分類與帳戶
+    const itemInput = $('#r-item');
+    if (itemInput) {
+      itemInput.addEventListener('change', function () {
+        applyItemMemory(itemInput.value);
       });
     }
 
@@ -720,26 +1157,119 @@
     if (!item) { setRecordMsg('請填寫項目名稱。', 'err'); return; }
     if (!account) { setRecordMsg('請選擇支付帳戶。', 'err'); return; }
 
+    const payload = { item: item, amount: amount, category: category, account: account, note: note };
+
+    // 確定離線就不用白跑一趟，直接排隊等有網路再送
+    if (JZ.isDefinitelyOffline()) {
+      queueAndClear(payload, item + ' ' + money(amount), function () {
+        $('#r-amount').value = '';
+        $('#r-item').value = '';
+        $('#r-note').value = '';
+      });
+      JZ.pushRecentItem(item);
+      return;
+    }
+
     const btn = $('#r-submit');
     lockBtn(btn, true, '送出中…');
     setRecordMsg('送出中…', '');
 
-    JZ.submitEntry({ item: item, amount: amount, category: category, account: account, note: note })
+    JZ.submitEntry(payload)
       .then(function (res) {
         lockBtn(btn, false, '送出記帳');
-        setRecordMsg(res.message, res.ok ? 'ok' : 'err');
         if (res.ok) {
+          setRecordMsg(res.message, 'ok');
           JZ.pushRecentItem(item);
           celebrate($('#r-amount'));
           $('#r-amount').value = '';
           $('#r-item').value = '';
           $('#r-note').value = '';
           reloadAfterWrite();
-        } else if (res.timeout) {
-          // 逾時不代表沒記成功，先幫他重抓一次，切到明細馬上就能確認
-          reloadAfterWrite();
+          return;
         }
+        if (res.timeout) {
+          // 逾時不代表沒記成功，先幫他重抓一次，切到明細馬上就能確認。
+          // ⚠️ 這種狀況絕對不可以排隊補送，會變成兩筆一樣的帳。
+          setRecordMsg(res.message, 'err');
+          reloadAfterWrite();
+          return;
+        }
+        // 送出當下才發現連不上（例如剛好斷線）：這種情況瀏覽器沒把請求送出去，排隊是安全的
+        if (JZ.isDefinitelyOffline()) {
+          queueAndClear(payload, item + ' ' + money(amount), function () {
+            $('#r-amount').value = '';
+            $('#r-item').value = '';
+            $('#r-note').value = '';
+          });
+          JZ.pushRecentItem(item);
+          return;
+        }
+        setRecordMsg(res.message, 'err');
       });
+  }
+
+  /* ---------- 離線排隊 ----------
+   * 只有「瀏覽器明確說現在離線」才會走到這裡。
+   * 逾時那種「可能寫進去了」的狀況一律不排隊——補送會變成兩筆一樣的帳，
+   * 而重複的帳要他自己打開試算表找出來刪掉，比漏一筆麻煩得多。
+   */
+  function queueAndClear(payload, label, clearFn) {
+    const count = JZ.pushQueue(payload, label);
+    if (clearFn) clearFn();
+    celebrate($('#r-amount'));
+    setRecordMsg(
+      '現在沒有網路，這筆帳先存在手機裡了（目前 ' + count + ' 筆等著送）。' +
+      '等連上網路會自動補送，你不用做什麼。',
+      'ok'
+    );
+    renderQueueBanner();
+  }
+
+  /** 把「還有幾筆等著送」顯示在記帳頁上方，不要讓他以為帳不見了 */
+  function renderQueueBanner() {
+    const el = $('#queue-banner');
+    if (!el) return;
+    const count = JZ.queueCount();
+    if (count === 0) {
+      el.style.display = 'none';
+      return;
+    }
+    el.style.display = 'block';
+    el.textContent = '有 ' + count + ' 筆帳還沒送出去（沒網路時存下來的），連上網路會自動補送。';
+  }
+
+  /** 試著把排隊中的帳補送出去 */
+  function tryFlushQueue(showWhenEmpty) {
+    if (JZ.queueCount() === 0) {
+      renderQueueBanner();
+      return;
+    }
+    if (JZ.isDefinitelyOffline()) {
+      renderQueueBanner();
+      return;
+    }
+
+    JZ.flushQueue().then(function (res) {
+      renderQueueBanner();
+      if (res.sent === 0 && res.uncertain === 0) {
+        if (showWhenEmpty && res.remaining > 0) {
+          setRecordMsg('還有 ' + res.remaining + ' 筆送不出去，等網路好一點會再試。', 'err');
+        }
+        return;
+      }
+
+      let text = '';
+      if (res.sent > 0) text += '補送成功 ' + res.sent + ' 筆。';
+      if (res.uncertain > 0) {
+        // 這種一定要講清楚，不能默默吞掉
+        text += '有 ' + res.uncertain + ' 筆等太久沒回應，可能已經記進去了，' +
+                '請到「明細」確認一下，沒有的話再自己補記。';
+      }
+      if (res.remaining > 0) text += '還有 ' + res.remaining + ' 筆等著送。';
+
+      setRecordMsg(text, res.uncertain > 0 ? 'err' : 'ok');
+      if (res.sent > 0) reloadAfterWrite();
+    });
   }
 
   function submitTransfer() {
@@ -928,9 +1458,12 @@
   function renderAll() {
     renderDataTimeBanner();
     renderOverview();
+    renderBudget();
+    renderForecast();
     initDetailFilters();
     applyDetailFilter();
     refreshRecordAccounts();
+    applyRecordPrefill();   // 要排在帳戶下拉生出來之後
     renderQuickItems();
     // 圖表只有在圖表頁可見時畫，這裡若正在圖表頁就順手重畫
     if ($('#tab-charts') && $('#tab-charts').classList.contains('active')) {
@@ -1005,6 +1538,25 @@
   function init() {
     // 版本號
     $all('.app-version').forEach(function (el) { el.textContent = APP_VERSION; });
+
+    // 開頁時先把網址帶來的預填參數讀起來。
+    // 真正填進表單要等資料載好、下拉選單生出來之後（renderAll 裡會做）。
+    recordPrefill = readRecordPrefill();
+
+    // 離線排隊：一連上網路就自動補送，不用他做任何事
+    renderQueueBanner();
+    window.addEventListener('online', function () { tryFlushQueue(false); });
+    // 開 App 的時候也試一次（可能是上次沒網路存下來的）
+    tryFlushQueue(false);
+
+    // 分類走勢的切換：只重畫這一張圖，不用整頁重新渲染
+    const trendSel = $('#trend-cat');
+    if (trendSel) {
+      trendSel.addEventListener('change', function () {
+        trendCategory = trendSel.value;
+        renderTrend();
+      });
+    }
 
     // 底部導覽
     $all('.nav-btn').forEach(function (btn) {

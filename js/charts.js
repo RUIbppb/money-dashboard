@@ -93,7 +93,7 @@ const JZCharts = (function () {
 
   // 圓餅圖：本月各支出分類
   // catTotals: { 食: 1200, 玩樂: 300, ... }
-  function drawCategoryPie(canvasId, catTotals) {
+  function drawCategoryPie(canvasId, catTotals, emptyText) {
     destroy(canvasId);
     const el = document.getElementById(canvasId);
     if (!el) return;
@@ -107,7 +107,7 @@ const JZCharts = (function () {
     const legendEl = document.getElementById(canvasId + '-legend');
 
     if (labels.length === 0) {
-      showEmpty(canvasId, '本月沒有支出紀錄');
+      showEmpty(canvasId, emptyText || '本月沒有支出紀錄');
       if (legendEl) legendEl.innerHTML = '';
       return;
     }
@@ -210,6 +210,65 @@ const JZCharts = (function () {
     });
   }
 
+  /* 折線圖：單一分類的逐月支出走勢
+   *
+   * 一次只畫一個分類，不是六條線疊在一起——
+   * 六條低飽和的大地色疊在同一張圖上，誰是誰根本分不出來，
+   * 那就違背了「顏色不單獨扛辨識責任」這條原則。
+   * 要看別的分類就用上面的下拉選單切換。
+   */
+  function drawCategoryTrend(canvasId, months, values, categoryName) {
+    destroy(canvasId);
+    const el = document.getElementById(canvasId);
+    if (!el) return;
+    if (!months || months.length === 0 || !values || values.length === 0) {
+      showEmpty(canvasId, '沒有足夠的資料畫走勢');
+      return;
+    }
+    hideEmpty(canvasId);
+
+    // 用該分類本來的顏色，跟圓餅圖對得起來
+    const color = C.cats[categoryName] || C.fallback;
+
+    instances[canvasId] = new Chart(el, {
+      type: 'line',
+      data: {
+        labels: months,
+        datasets: [{
+          label: categoryName,
+          data: values,
+          borderColor: color,
+          backgroundColor: 'transparent',
+          fill: false,
+          tension: 0.3,
+          pointRadius: 3,
+          pointBackgroundColor: color,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) { return ' ' + categoryName + '：' + fmt(ctx.parsed.y) + ' 元'; }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { color: C.grid } },
+          y: {
+            beginAtZero: true,   // 不從零開始的話，小幅波動看起來會像雲霄飛車
+            grid: { color: C.grid },
+            ticks: { callback: function (v) { return fmt(v); } }
+          }
+        }
+      }
+    });
+  }
+
   // 長條圖：每月收入 vs 支出並排
   function drawMonthlyBar(canvasId, monthly) {
     destroy(canvasId);
@@ -284,7 +343,8 @@ const JZCharts = (function () {
     applyTheme: applyTheme,
     drawCategoryPie: drawCategoryPie,
     drawAssetLine: drawAssetLine,
-    drawMonthlyBar: drawMonthlyBar
+    drawMonthlyBar: drawMonthlyBar,
+    drawCategoryTrend: drawCategoryTrend
   };
 })();
 

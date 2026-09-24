@@ -384,6 +384,290 @@ var JZPure = (function () {
   }
 
   // ============================================================
+  // 六、報表用的算式
+  // ============================================================
+
+  /** 從 ISO 時間字串取出 yyyy-MM（字串本身已經是台北時間，直接切） */
+  function monthOf(isoTime) {
+    return safeStr(isoTime).slice(0, 7);
+  }
+
+  /** 從 yyyy-MM 取出年份 yyyy */
+  function yearOf(monthKey) {
+    return safeStr(monthKey).slice(0, 4);
+  }
+
+  /*
+   * categoryTrend —— 每個分類逐月的支出走勢，回答「我有沒有在變好」。
+   *
+   * opts = { untilMonth: '2026-09', months: 6 }
+   *   untilMonth 一定要由外面傳進來（鐵律 2）
+   *   months 是要看幾個月，預設 6
+   *
+   * 回傳 { months: ['2026-04', ...], series: { '食': [8000, 7500, ...], ... } }
+   * 中間沒消費的月份補 0，折線才不會斷掉。
+   */
+  function categoryTrend(transactions, opts) {
+    opts = opts || {};
+    var untilMonth = safeStr(opts.untilMonth);
+    // 沒給、給 0、給負數，一律當成沒指定，用預設的 6 個月。
+    // 不要讓一個怪參數把圖表縮成只剩一個點。
+    var count = toNumber(opts.months);
+    if (count < 1) count = 6;
+
+    var out = { months: [], series: {} };
+    if (!untilMonth) return out;
+
+    // 先把要顯示的月份排出來（由舊到新）
+    var cursor = untilMonth;
+    var monthList = [];
+    for (var i = 0; i < count; i++) {
+      monthList.unshift(cursor);
+      cursor = prevMonthKey(cursor);
+    }
+    out.months = monthList;
+
+    var monthIndex = {};
+    for (var m = 0; m < monthList.length; m++) monthIndex[monthList[m]] = m;
+
+    var rows = transactions || [];
+    for (var r = 0; r < rows.length; r++) {
+      var tx = rows[r] || {};
+      if (safeStr(tx.type).trim() !== '支出') continue;
+
+      var key = monthOf(tx.time);
+      if (!(key in monthIndex)) continue;
+
+      var category = safeStr(tx.category).trim();
+      if (category === '') continue;
+
+      if (!out.series[category]) {
+        // 新分類就補一排 0，長度跟月份清單一樣
+        out.series[category] = monthList.map(function () { return 0; });
+      }
+      out.series[category][monthIndex[key]] += Math.abs(toNumber(tx.amount));
+    }
+
+    // 四捨五入收尾，避免浮點數殘留一堆小數
+    for (var cat in out.series) {
+      if (!out.series.hasOwnProperty(cat)) continue;
+      out.series[cat] = out.series[cat].map(round2);
+    }
+
+    return out;
+  }
+
+  /*
+   * compareMonths —— 這個月跟上個月各分類的比較，回答「錢都花去哪了」。
+   *
+   * 回傳陣列，依「這個月花最多」排序：
+   *   [{ category: '食', current: 8213, previous: 12722, delta: -4509, percent: -35.4 }]
+   *
+   * percent 是變化百分比。上個月是 0 時無法算百分比，回傳 null（不是 0，
+   * 因為「從 0 變成 500」跟「沒變化」是完全不同的兩件事）。
+   */
+  function compareMonths(transactions, currentMonth) {
+    var current = safeStr(currentMonth);
+    if (!current) return [];
+    var previous = prevMonthKey(current);
+
+    var currentTotals = {};
+    var previousTotals = {};
+
+    var rows = transactions || [];
+    for (var i = 0; i < rows.length; i++) {
+      var tx = rows[i] || {};
+      if (safeStr(tx.type).trim() !== '支出') continue;
+
+      var category = safeStr(tx.category).trim();
+      if (category === '') continue;
+
+      var amount = Math.abs(toNumber(tx.amount));
+      var key = monthOf(tx.time);
+
+      if (key === current) {
+        currentTotals[category] = (currentTotals[category] || 0) + amount;
+      } else if (key === previous) {
+        previousTotals[category] = (previousTotals[category] || 0) + amount;
+      }
+    }
+
+    // 兩個月出現過的分類都要列出來，包括「這個月完全沒花」的
+    var seen = {};
+    var names = [];
+    [currentTotals, previousTotals].forEach(function (totals) {
+      for (var name in totals) {
+        if (!totals.hasOwnProperty(name) || seen[name]) continue;
+        seen[name] = true;
+        names.push(name);
+      }
+    });
+
+    var result = names.map(function (name) {
+      var now = round2(currentTotals[name] || 0);
+      var before = round2(previousTotals[name] || 0);
+      return {
+        category: name,
+        current: now,
+        previous: before,
+        delta: round2(now - before),
+        percent: before > 0 ? round2(((now - before) / before) * 100) : null
+      };
+    });
+
+    result.sort(function (a, b) {
+      if (b.current !== a.current) return b.current - a.current;
+      return a.category < b.category ? -1 : 1;
+    });
+
+    return result;
+  }
+
+  /*
+   * yearTotals —— 某一年各分類的支出累計，給年度圓餅用。
+   * year 傳 '2026' 這種字串。
+   */
+  function yearTotals(transactions, year) {
+    var target = safeStr(year);
+    var out = {};
+    if (!target) return out;
+
+    var rows = transactions || [];
+    for (var i = 0; i < rows.length; i++) {
+      var tx = rows[i] || {};
+      if (safeStr(tx.type).trim() !== '支出') continue;
+      if (yearOf(monthOf(tx.time)) !== target) continue;
+
+      var category = safeStr(tx.category).trim();
+      if (category === '') continue;
+      out[category] = (out[category] || 0) + Math.abs(toNumber(tx.amount));
+    }
+
+    for (var cat in out) {
+      if (out.hasOwnProperty(cat)) out[cat] = round2(out[cat]);
+    }
+    return out;
+  }
+
+  /*
+   * budgetAchievement —— 每個月守住了幾個分類，回答「我守得住預算嗎」。
+   *
+   * budgets 是唯讀 API 的 budgets 陣列。
+   * 回傳依月份由舊到新：
+   *   [{ month: '2026-08', kept: 4, total: 5, over: ['食'] }]
+   *
+   * 注意：**當月會被排除**。月中才過一半，說「守住了」沒有意義，
+   * 要整個月結束才算數。所以要傳 currentMonth 進來告訴它哪個月還沒結束。
+   */
+  function budgetAchievement(budgets, currentMonth) {
+    var rows = budgets || [];
+    var current = safeStr(currentMonth);
+    var byMonth = {};
+
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i] || {};
+      var month = safeStr(row.month);
+      if (!month || month >= current) continue;   // 當月與未來都不算
+
+      var limit = toNumber(row.limit);
+      if (limit <= 0) continue;
+
+      if (!byMonth[month]) byMonth[month] = { month: month, kept: 0, total: 0, over: [] };
+      byMonth[month].total += 1;
+
+      if (toNumber(row.spent) > limit) {
+        byMonth[month].over.push(safeStr(row.category));
+      } else {
+        byMonth[month].kept += 1;
+      }
+    }
+
+    var months = Object.keys(byMonth).sort();
+    return months.map(function (m) { return byMonth[m]; });
+  }
+
+  /*
+   * forecastMonthEnd —— 照目前的花法，推估月底大概剩多少。
+   *
+   * opts = {
+   *   totalAssets: 205399,      現在的總資產
+   *   spentSoFar: 19913,        這個月到目前為止的「可控支出」
+   *   dayOfMonth: 15,           今天幾號
+   *   daysInMonth: 30,          這個月有幾天
+   *   pendingFixed: 13304       還沒繳的固定支出合計
+   * }
+   *
+   * 算法故意很笨：把「到今天為止的平均日花費」乘上剩下的天數，
+   * 再扣掉還沒繳的固定支出。不做迴歸、不看季節性——
+   * 資料量太小，複雜的模型只會給出假精準。
+   *
+   * 回傳 null 代表資料不足以推估（例如今天是 1 號）。
+   */
+  function forecastMonthEnd(opts) {
+    opts = opts || {};
+    var totalAssets = toNumber(opts.totalAssets);
+    var spentSoFar = toNumber(opts.spentSoFar);
+    var dayOfMonth = toNumber(opts.dayOfMonth);
+    var daysInMonth = toNumber(opts.daysInMonth);
+    var pendingFixed = toNumber(opts.pendingFixed);
+
+    if (dayOfMonth < 1 || daysInMonth < dayOfMonth) return null;
+    // 月初前兩天的平均值波動太大，算出來只會嚇到自己
+    if (dayOfMonth < 3) return null;
+
+    var dailyAverage = spentSoFar / dayOfMonth;
+    var daysLeft = daysInMonth - dayOfMonth;
+    var projectedSpend = round2(dailyAverage * daysLeft);
+
+    return {
+      dailyAverage: round2(dailyAverage),
+      daysLeft: daysLeft,
+      projectedSpend: projectedSpend,
+      pendingFixed: round2(pendingFixed),
+      projectedEnd: round2(totalAssets - projectedSpend - pendingFixed)
+    };
+  }
+
+  /*
+   * itemMemory —— 每個項目名稱「最後一次」用的分類與帳戶。
+   *
+   * 用途：打「午餐」就自動帶出上次選的分類和帳戶，少點兩下。
+   *
+   * 為什麼從流水帳推，而不是只記 App 裡送出過的？
+   * 因為 RUI 大部分的帳是用 iPhone 捷徑記的，根本不會經過這個 App。
+   * 只記 App 送出的話，涵蓋率低到這個功能等於沒用。
+   *
+   * transactions 必須是**新到舊**排序（契約 2.4 保證了這點），
+   * 所以每個項目第一次遇到的就是最新的那筆。
+   *
+   * 轉帳不列入——轉帳的項目多半是「資金調度」，帶出來沒有意義。
+   */
+  function itemMemory(transactions) {
+    var out = {};
+    var rows = transactions || [];
+
+    for (var i = 0; i < rows.length; i++) {
+      var tx = rows[i] || {};
+      var type = safeStr(tx.type).trim();
+      if (type !== '支出' && type !== '收入') continue;
+
+      var item = safeStr(tx.item).trim();
+      if (item === '') continue;
+
+      var key = item.toLowerCase();
+      if (out[key]) continue;   // 已經有更新的那筆了
+
+      var category = safeStr(tx.category).trim();
+      var account = safeStr(tx.account).trim();
+      if (category === '' && account === '') continue;
+
+      out[key] = { item: item, category: category, account: account };
+    }
+
+    return out;
+  }
+
+  // ============================================================
   // 對外公開的介面
   // ============================================================
   return {
@@ -392,9 +676,17 @@ var JZPure = (function () {
     filterTransactions: filterTransactions,
     summarize: summarize,
     topItems: topItems,
-    // 下面兩個是小工具，畫面層偶爾也用得到
+    // 報表
+    categoryTrend: categoryTrend,
+    compareMonths: compareMonths,
+    yearTotals: yearTotals,
+    budgetAchievement: budgetAchievement,
+    forecastMonthEnd: forecastMonthEnd,
+    itemMemory: itemMemory,
+    // 下面三個是小工具，畫面層偶爾也用得到
     toNumber: toNumber,
-    round2: round2
+    round2: round2,
+    prevMonthKey: prevMonthKey
   };
 })();
 
