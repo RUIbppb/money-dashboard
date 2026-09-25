@@ -198,7 +198,12 @@ const JZ = (function () {
    *   { ok: true, data: {...}, fromCache: false }
    *   { ok: false, message: '白話錯誤', data: 快取或 null, fromCache: true/false }
    */
-  function fetchAll() {
+  /**
+   * 抓整包資料。
+   * @param opts.fresh 剛寫入過資料時要帶 true——後端會快取結果 60 秒，
+   *                   不帶的話可能拿到剛才那筆還沒進去的舊版本。
+   */
+  function fetchAll(opts) {
     const s = getSettings();
 
     if (!s.readUrl || !s.readToken) {
@@ -221,7 +226,10 @@ const JZ = (function () {
       (s.readUrl.indexOf('?') >= 0 ? '&' : '?') +
       'token=' + encodeURIComponent(s.readToken) +
       '&action=all' +
-      '&months=all';
+      '&months=all' +
+      // 後端會把算好的結果快取 60 秒（它每次重算要 4～6 秒）。
+      // 剛記完帳／改完帳一定要帶 fresh=1 強制重算，否則會看到快取裡的舊資料。
+      ((opts && opts.fresh) ? '&fresh=1' : '');
 
     return fetchWithTimeout(url, { method: 'GET', redirect: 'follow' }, READ_TIMEOUT_MS)
       .then(function (resp) {

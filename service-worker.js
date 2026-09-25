@@ -24,7 +24,7 @@
  *       避免把即時資料鎖在舊快取裡。
  */
 
-const CACHE_VERSION = 'jz-app-v18';   // 每次改版都要 +1
+const CACHE_VERSION = 'jz-app-v19';   // 每次改版都要 +1
 const OCR_CACHE = 'jz-ocr-v1';       // 只放截圖辨識引擎，刻意「不」隨改版清除
 
 // 這兩個倉庫要留著，其他一律清掉

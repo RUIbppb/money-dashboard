@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.10';
+  const APP_VERSION = 'v4.0';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -1059,6 +1059,109 @@
     });
   }
 
+  /** 現在的台北時間，ISO 8601 格式（跟後端回傳的長得一樣） */
+  function taipeiNowIso() {
+    // sv-SE 的格式剛好是 YYYY-MM-DD HH:mm:ss，換個分隔符就是 ISO
+    const s = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' });
+    return s.replace(' ', 'T') + '+08:00';
+  }
+
+  /* ---------- 記一筆帳：先當成已經成功 ----------
+   *
+   * 按下送出之後，等 Apps Script 回應要好幾秒（它每次都要重新打開整份試算表）。
+   * 那幾秒裡畫面什麼都沒變，只有一個「送出中…」——記一筆帳變成一件要等的事。
+   *
+   * 所以改成：**立刻**把這筆加進畫面、清空欄位、當作記好了，真正的送出在背景跑。
+   * 萬一失敗，再把那筆收回去，並且**把你打的內容原封不動還給你**，不用重打一次。
+   *
+   * 這樣做的前提是失敗率很低，而且失敗時能完整復原——兩個條件都成立才可以這樣偷跑。
+   */
+  function addTxLocally(payload) {
+    if (!state.data) return null;
+    if (!state.data.transactions) state.data.transactions = [];
+
+    const type = (INCOME_CATEGORIES.indexOf(payload.category) >= 0) ? '收入' : '支出';
+    const amount = Math.abs(Number(payload.amount) || 0);
+    const tx = {
+      // 還不知道它在試算表第幾列，先給 0。
+      // 剛好也讓明細不顯示那顆「⋯」——還沒確定寫進去的帳不該能改或刪
+      row: 0,
+      time: taipeiNowIso(),
+      item: payload.item,
+      amount: amount,
+      category: payload.category,
+      account: payload.account,
+      note: payload.note || '',
+      type: type
+    };
+    state.data.transactions.unshift(tx);   // 契約保證是新到舊，所以放最前面
+
+    // 帳戶餘額與當月統計也一起動，不然總覽會跟明細對不起來
+    const delta = (type === '收入') ? amount : -amount;
+    (state.data.accounts || []).forEach(function (a) {
+      if (a && a.name === payload.account) a.balance = (Number(a.balance) || 0) + delta;
+    });
+    const cm = taipeiCurrentMonth();
+    (state.data.monthly || []).forEach(function (m) {
+      if (!m || m.month !== cm) return;
+      if (type === '收入') m.income = (Number(m.income) || 0) + amount;
+      else m.expense = (Number(m.expense) || 0) + amount;
+      m.net = (Number(m.income) || 0) - (Number(m.expense) || 0);
+      m.assets = (Number(m.assets) || 0) + delta;
+    });
+
+    return tx;
+  }
+
+  /** 把剛才樂觀加進去的那筆收回來（送出失敗時用） */
+  function undoLocalTx(tx) {
+    if (!tx || !state.data || !state.data.transactions) return;
+    const i = state.data.transactions.indexOf(tx);
+    if (i >= 0) state.data.transactions.splice(i, 1);
+
+    const amount = Math.abs(Number(tx.amount) || 0);
+    const delta = (tx.type === '收入') ? -amount : amount;   // 跟加進去時相反
+    (state.data.accounts || []).forEach(function (a) {
+      if (a && a.name === tx.account) a.balance = (Number(a.balance) || 0) + delta;
+    });
+    const cm = taipeiCurrentMonth();
+    (state.data.monthly || []).forEach(function (m) {
+      if (!m || m.month !== cm) return;
+      if (tx.type === '收入') m.income = (Number(m.income) || 0) - amount;
+      else m.expense = (Number(m.expense) || 0) - amount;
+      m.net = (Number(m.income) || 0) - (Number(m.expense) || 0);
+      m.assets = (Number(m.assets) || 0) + delta;
+    });
+  }
+
+  /** 記完一筆之後的重畫：總覽、預算、明細都要跟上，但不碰記帳表單本身 */
+  function repaintAfterRecord() {
+    if (state.data && JZ.saveCachedData) JZ.saveCachedData(state.data);
+    renderDataTimeBanner();
+    renderOverview();
+    renderBudget();
+    renderForecast();
+    initDetailFilters();
+    applyDetailFilter();
+    renderQuickItems();
+    if ($('#tab-charts') && $('#tab-charts').classList.contains('active')) renderCharts();
+  }
+
+  function clearRecordFields() {
+    if ($('#r-amount')) $('#r-amount').value = '';
+    if ($('#r-item')) $('#r-item').value = '';
+    if ($('#r-note')) $('#r-note').value = '';
+  }
+
+  /** 送出失敗時把他打的內容還回去，不要讓人重打一次 */
+  function restoreRecordFields(payload) {
+    if ($('#r-amount')) $('#r-amount').value = payload.amount;
+    if ($('#r-item')) $('#r-item').value = payload.item;
+    if ($('#r-note')) $('#r-note').value = payload.note || '';
+    if ($('#r-category') && hasOption($('#r-category'), payload.category)) $('#r-category').value = payload.category;
+    if ($('#r-account') && hasOption($('#r-account'), payload.account)) $('#r-account').value = payload.account;
+  }
+
   /** 本地資料動過之後，把快取一起更新、再把明細與相關區塊重畫一次。
    *
    * ⚠️ 更新快取這一步不能省。重抓資料如果失敗（沒網路、逾時），
@@ -1689,41 +1792,44 @@
       return;
     }
 
-    const btn = $('#r-submit');
-    lockBtn(btn, true, '送出中…');
-    setRecordMsg('送出中…', '');
+    // ---- 先當成已經成功：畫面立刻更新、欄位清空，不讓他盯著「送出中」等 ----
+    const optimistic = addTxLocally(payload);
+    clearRecordFields();
+    JZ.pushRecentItem(item);
+    celebrate($('#r-amount'));
+    setRecordMsg('已記下　' + item + '　' + money(amount), 'ok');
+    repaintAfterRecord();
 
     JZ.submitEntry(payload)
       .then(function (res) {
-        lockBtn(btn, false, '送出記帳');
         if (res.ok) {
-          setRecordMsg(res.message, 'ok');
-          JZ.pushRecentItem(item);
-          celebrate($('#r-amount'));
-          $('#r-amount').value = '';
-          $('#r-item').value = '';
-          $('#r-note').value = '';
+          // 背景重抓校正（拿到真正的列號、後端算的餘額與預算）
           reloadAfterWrite();
           return;
         }
+
         if (res.timeout) {
-          // 逾時不代表沒記成功，先幫他重抓一次，切到明細馬上就能確認。
-          // ⚠️ 這種狀況絕對不可以排隊補送，會變成兩筆一樣的帳。
+          /* 逾時＝可能其實已經寫進去了。
+           * 這種狀況**不可以**把本地那筆收回來——收回來又重記就會變成兩筆一樣的帳。
+           * 留著它，重抓一次讓他自己到明細確認。 */
           setRecordMsg(res.message, 'err');
           reloadAfterWrite();
           return;
         }
-        // 送出當下才發現連不上（例如剛好斷線）：這種情況瀏覽器沒把請求送出去，排隊是安全的
+
+        // 到這裡代表確定沒寫進去：把剛才樂觀加的那筆收回來
+        undoLocalTx(optimistic);
+        repaintAfterRecord();
+
+        // 送出當下才斷線：瀏覽器根本沒送出去，排隊補送是安全的
         if (JZ.isDefinitelyOffline()) {
-          queueAndClear(payload, item + ' ' + money(amount), function () {
-            $('#r-amount').value = '';
-            $('#r-item').value = '';
-            $('#r-note').value = '';
-          });
-          JZ.pushRecentItem(item);
+          queueAndClear(payload, item + ' ' + money(amount), function () {});
           return;
         }
-        setRecordMsg(res.message, 'err');
+
+        // 其他失敗（密語錯、白名單擋下…）：把他打的內容還回去，不用重打
+        restoreRecordFields(payload);
+        setRecordMsg('沒記成功：' + res.message + '（內容幫你留著了，改好再送一次）', 'err');
       });
   }
 
@@ -1857,7 +1963,8 @@
       if (now - lastReturnRefresh < RETURN_REFRESH_MIN_GAP_MS) return;
       lastReturnRefresh = now;
 
-      loadData();
+      // 走快取：這條路徑一天會跑很多次，而且不是剛寫入完，用快取才快得起來
+      loadData({ fresh: false });
       // 順便試一次補送：剛才在背景的時候網路可能已經恢復了
       tryFlushQueue(false);
 
@@ -2007,8 +2114,8 @@
       });
       setSettingsMsg('設定已儲存。', 'ok');
       refreshRecordAccounts();
-      // 存好後自動抓一次，並跳到總覽頁（與使用說明一致）
-      loadData();
+      // 存好後自動抓一次，並跳到總覽頁（與使用說明一致）。走快取，開得快一點
+      loadData({ fresh: false });
       switchTab('overview');
     });
 
@@ -2114,8 +2221,18 @@
 
   // 抓一次最新資料，然後把整個畫面重畫。
   // 抓失敗不用另外跳訊息——上方的離線橫幅本來就會顯示「現在看的是哪個時間的舊資料」。
-  function loadData() {
-    return JZ.fetchAll().then(function (res) {
+  /**
+   * 抓資料並重畫。
+   *
+   * 預設**強制後端重算**（fresh）。因為呼叫這支的地方大多是「剛寫入完」，
+   * 而後端會把結果快取 60 秒——拿到快取裡的舊版本，剛記的那筆就會不見。
+   *
+   * 只有「開 App」與「切回 App」這兩條路徑會明確傳 { fresh: false } 走快取，
+   * 那是為了快：後端重算一次要 4～6 秒，讀快取只要幾百毫秒。
+   */
+  function loadData(opts) {
+    const options = opts || { fresh: true };
+    return JZ.fetchAll(options).then(function (res) {
       if (res.data) {
         state.data = res.data;
         state.fromCache = res.fromCache;
@@ -2341,8 +2458,8 @@
       // 也支援用網址參數指定，例如 index.html?tab=overview 會直接開總覽——
       // 你可以用 Safari 的「加入主畫面」多做一顆圖示，等於自己 DIY 一個捷徑。
       switchTab(startTabFromUrl() || 'record');
-      // 有設定就抓一次最新資料
-      loadData();
+      // 有設定就抓一次。走快取——開 App 的速度最有感，而這時候不會有剛寫入的資料
+      loadData({ fresh: false });
     }
 
     initServiceWorker();
