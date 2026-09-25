@@ -251,6 +251,23 @@ input, select, button, textarea {
   line-height: 1.7;
 }
 
+/* 標題列的「資料時間」：長得跟原本的文字一樣，但可以點一下重新抓資料。
+   底下那條虛線是唯一的暗示，不要做成明顯的按鈕——它不是主要操作，
+   只是讓人想更新的時候有地方點 */
+.data-time-btn {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  border-bottom: 1px dashed currentColor;
+  padding: 0 1px;
+  margin: 0;
+  cursor: pointer;
+  line-height: inherit;
+}
+.data-time-btn:active { opacity: 0.55; }
+
 /* 提醒訊息裡可以點的名字。用 button 而不是 a，因為它不是連到別的網頁，
    而是就地切換畫面；長相做成底線文字，讓人一看就知道可以點 */
 .link-btn {

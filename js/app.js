@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.1';
+  const APP_VERSION = 'v3.2';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -1473,6 +1473,58 @@
     loadData();
   }
 
+  /* ---------- 切回 App 就自動更新 ----------
+   * 你大部分的帳是用 iPhone 捷徑記的。記完切回這個 App 的時候，它通常還停在
+   * 記憶體裡沒有重新載入（iOS 的 PWA 就是這樣），畫面上還是你離開前抓的那份資料——
+   * 剛記的那筆不會出現，看起來就像沒記到，得把 App 整個關掉再開才會更新。
+   *
+   * 所以只要視窗重新變成可見，就自動重抓一次。
+   *
+   * 為什麼可以放心在背景抓：fetchAll 不會拋錯，連不上時會回上次的快取資料，
+   * 所以最壞的情況只是畫面維持原樣，不會跳錯誤訊息嚇人。
+   *
+   * 最小間隔 10 秒：避免在 App 裡切來切去（例如跳去看通知再回來）時連續打 API。
+   */
+  var RETURN_REFRESH_MIN_GAP_MS = 10 * 1000;
+  var lastReturnRefresh = 0;
+
+  function initRefreshOnReturn() {
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      if (!JZ.hasReadConfig()) return;   // 還沒設定連線就不用白跑
+
+      const now = Date.now();
+      if (now - lastReturnRefresh < RETURN_REFRESH_MIN_GAP_MS) return;
+      lastReturnRefresh = now;
+
+      loadData();
+      // 順便試一次補送：剛才在背景的時候網路可能已經恢復了
+      tryFlushQueue(false);
+    });
+  }
+
+  /* 點「資料時間」就重新抓一次。
+   * 設定頁那顆「重新整理資料」還在（而且有 60 秒節流），這裡是給「人在其他頁、
+   * 想馬上看到剛記的帳」用的捷徑，不受那個節流影響。 */
+  var manualRefreshing = false;
+
+  function initDataTimeRefresh() {
+    const btn = $('#data-time');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      // 還沒設定連線的話，點了直接帶他去設定頁，不要按了沒反應
+      if (!JZ.hasReadConfig()) { switchTab('settings'); return; }
+      if (manualRefreshing) return;
+
+      manualRefreshing = true;
+      btn.textContent = '更新中…';
+      loadData().then(function () {
+        manualRefreshing = false;
+        // 時間文字由 renderDataTimeBanner 寫回去，這裡不用自己設
+      });
+    });
+  }
+
   // ---------- 設定頁 ----------
 
   function loadSettingsIntoForm() {
@@ -1707,6 +1759,10 @@
     window.addEventListener('online', function () { tryFlushQueue(false); });
     // 開 App 的時候也試一次（可能是上次沒網路存下來的）
     tryFlushQueue(false);
+
+    // 用捷徑記完帳切回來，畫面要是新的；標題列的「資料時間」也可以點一下手動更新
+    initRefreshOnReturn();
+    initDataTimeRefresh();
 
     // 分類走勢的切換：只重畫這一張圖，不用整頁重新渲染
     const trendSel = $('#trend-cat');
