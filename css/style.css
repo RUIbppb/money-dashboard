@@ -399,7 +399,7 @@ input, select, button, textarea {
   padding: 20px 18px calc(20px + env(safe-area-inset-bottom, 0px));
   width: 100%;
   max-width: 560px;
-  max-height: 88vh;
+  max-height: 92vh;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-bottom: none;
@@ -796,6 +796,14 @@ select.input {
   background: var(--card);
   border-top: 1px solid var(--border);
   padding-bottom: var(--safe-bottom);   /* iPhone 底部安全區 */
+  transition: transform .22s ease;
+}
+/* 修改面板打開時，導覽列滑下去讓位。
+   比「讓面板蓋過導覽列」乾淨得多——面板拿到完整的畫面高度，
+   就不會再有按鈕被切掉、要捲動才看得到的問題。
+   （面板打開時本來也不該還能切分頁，收起來剛好。） */
+body.modal-open #bottom-nav {
+  transform: translateY(100%);
 }
 .nav-btn {
   flex: 1;

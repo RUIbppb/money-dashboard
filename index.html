@@ -193,49 +193,6 @@
         <button id="detail-more" class="btn-secondary" style="display:none">載入更多</button>
       </section>
 
-      <!-- 修改／刪除一筆帳的彈出面板。平常收著，從明細的「⋯」打開 -->
-      <div id="edit-modal" class="modal" style="display:none">
-        <div class="modal-box">
-          <!-- 刪除放在標題列右邊，不放最底下：面板內容可能比螢幕高，
-               放底下就得捲動才看得到，等於把最重要的操作藏起來 -->
-          <div class="modal-head">
-            <div class="modal-title">修改這筆帳</div>
-            <button id="e-delete" class="btn-delete-mini" type="button">刪除</button>
-          </div>
-          <div id="edit-meta" class="modal-meta"></div>
-
-          <div id="e-confirm" class="confirm-row" style="display:none">
-            <span class="confirm-text">確定要刪掉這筆？刪了就找不回來。</span>
-            <div class="confirm-btns">
-              <button id="e-delete-no" class="btn-secondary" type="button">算了</button>
-              <button id="e-delete-yes" class="btn-danger" type="button">確定刪除</button>
-            </div>
-          </div>
-
-          <label class="field-label" for="e-amount">金額</label>
-          <input id="e-amount" class="input" type="number" inputmode="decimal" min="0" step="1" />
-
-          <label class="field-label" for="e-item">項目</label>
-          <input id="e-item" class="input" type="text" />
-
-          <label class="field-label" for="e-category">主分類</label>
-          <select id="e-category" class="input"></select>
-
-          <label class="field-label" for="e-account">支付帳戶</label>
-          <select id="e-account" class="input"></select>
-
-          <label class="field-label" for="e-note">備註</label>
-          <input id="e-note" class="input" type="text" placeholder="可留空，可加 #專案標籤" />
-
-          <div id="edit-msg" class="record-msg" style="display:none"></div>
-
-          <div class="modal-actions">
-            <button id="e-cancel" class="btn-secondary" type="button">取消</button>
-            <button id="e-save" class="btn-primary" type="button">儲存</button>
-          </div>
-        </div>
-      </div>
-
       <!-- ===== 記帳 ===== -->
       <section id="tab-record" class="tab-section">
         <div id="record-gate" class="gate-hint" style="display:none"></div>
@@ -383,7 +340,7 @@
 
         <div class="footer">
           <div>製作人Rui / Maker Rui</div>
-          <div>版本 <span class="app-version">v3.0</span></div>
+          <div>版本 <span class="app-version">—</span></div>
         </div>
       </section>
 
@@ -425,6 +382,49 @@
       </button>
     </nav>
 
+  </div>
+
+  <!-- 修改／刪除一筆帳的彈出面板。平常收著，從明細的「⋯」打開 -->
+  <div id="edit-modal" class="modal" style="display:none">
+    <div class="modal-box">
+      <!-- 刪除放在標題列右邊，不放最底下：面板內容可能比螢幕高，
+           放底下就得捲動才看得到，等於把最重要的操作藏起來 -->
+      <div class="modal-head">
+        <div class="modal-title">修改這筆帳</div>
+        <button id="e-delete" class="btn-delete-mini" type="button">刪除</button>
+      </div>
+      <div id="edit-meta" class="modal-meta"></div>
+
+      <div id="e-confirm" class="confirm-row" style="display:none">
+        <span class="confirm-text">確定要刪掉這筆？刪了就找不回來。</span>
+        <div class="confirm-btns">
+          <button id="e-delete-no" class="btn-secondary" type="button">算了</button>
+          <button id="e-delete-yes" class="btn-danger" type="button">確定刪除</button>
+        </div>
+      </div>
+
+      <label class="field-label" for="e-amount">金額</label>
+      <input id="e-amount" class="input" type="number" inputmode="decimal" min="0" step="1" />
+
+      <label class="field-label" for="e-item">項目</label>
+      <input id="e-item" class="input" type="text" />
+
+      <label class="field-label" for="e-category">主分類</label>
+      <select id="e-category" class="input"></select>
+
+      <label class="field-label" for="e-account">支付帳戶</label>
+      <select id="e-account" class="input"></select>
+
+      <label class="field-label" for="e-note">備註</label>
+      <input id="e-note" class="input" type="text" placeholder="可留空，可加 #專案標籤" />
+
+      <div id="edit-msg" class="record-msg" style="display:none"></div>
+
+      <div class="modal-actions">
+        <button id="e-cancel" class="btn-secondary" type="button">取消</button>
+        <button id="e-save" class="btn-primary" type="button">儲存</button>
+      </div>
+    </div>
   </div>
 
   <!-- Chart.js（自帶，不連外網） -->

@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.8';
+  const APP_VERSION = 'v3.9';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -1011,12 +1011,15 @@
 
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';   // 底下的明細不要跟著捲
+    // 這個 class 會讓底部導覽列滑下去，把整個畫面高度讓給面板
+    document.body.classList.add('modal-open');
   }
 
   function closeEditModal() {
     const modal = $('#edit-modal');
     if (modal) modal.style.display = 'none';
     document.body.style.overflow = '';
+    document.body.classList.remove('modal-open');   // 導覽列滑回來
     editingTx = null;
   }
 
