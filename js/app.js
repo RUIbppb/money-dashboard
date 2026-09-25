@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.5';
+  const APP_VERSION = 'v3.6';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -1025,6 +1025,55 @@
     return { time: tx.time, amount: tx.amount, item: tx.item };
   }
 
+  /*
+   * 後端說「這一列跟你看到的不一樣」時的自動修復。
+   *
+   * 會發生的原因幾乎都是列號位移：你自己在試算表刪掉一列之後，後面所有帳的列號
+   * 都往上移一格，而 App 手上還是舊的列號。後端擋下來是對的（不然就刪到隔壁那筆了），
+   * 但只丟一句「請重新整理」就等於把麻煩丟回給你。
+   *
+   * 所以這裡自動重抓一次，再用「時間＋金額＋項目」把同一筆帳重新找出來、換上新的列號。
+   * 找得到的話再按一次就會成功；找不到就代表那筆真的已經不在了。
+   */
+  function isStaleRowError(message) {
+    return String(message || '').indexOf('重新整理') >= 0;
+  }
+
+  function findSameTx(target) {
+    if (!target) return null;
+    const list = (state.data && state.data.transactions) ? state.data.transactions : [];
+    const amount = Math.abs(Number(target.amount) || 0);
+    const item = String(target.item || '').trim();
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i] || {};
+      if (String(t.time) !== String(target.time)) continue;
+      if (Math.abs(Number(t.amount) || 0) !== amount) continue;
+      if (String(t.item || '').trim() !== item) continue;
+      return t;
+    }
+    return null;
+  }
+
+  function recoverStaleRow(originalMessage) {
+    const target = editingTx;
+    setEditMsg('資料好像在別的地方被動過，正在重新確認…', '');
+
+    loadData().then(function () {
+      // 面板可能在這中間被關掉了，那就不用再管
+      if (!editingTx || editingTx !== target) return;
+
+      const fresh = findSameTx(target);
+      if (fresh && Number(fresh.row) > 0) {
+        editingTx = fresh;
+        setEditMsg('這筆帳在試算表裡的位置變了（你可能刪過別列），已經幫你對回來，再按一次就可以了。', 'err');
+        return;
+      }
+      setEditMsg('這筆帳在試算表裡已經找不到了，可能已經被刪掉。關掉這個視窗看一下最新的明細。', 'err');
+    }).catch(function () {
+      setEditMsg(originalMessage, 'err');
+    });
+  }
+
   function saveEdit() {
     if (!editingTx) return;
     const tx = editingTx;
@@ -1058,6 +1107,11 @@
         loadData();
         return;
       }
+      // 列號位移：自動重抓並把列號對回來，不要叫他自己去重新整理
+      if (isStaleRowError(res.message)) {
+        recoverStaleRow(res.message);
+        return;
+      }
       setEditMsg(res.message, 'err');
     });
   }
@@ -1080,6 +1134,13 @@
       if (res.timeout) {
         setEditMsg(res.message + '（重新抓一次資料，請確認是不是已經刪掉了）', 'err');
         loadData();
+        return;
+      }
+      if (isStaleRowError(res.message)) {
+        // 刪除的確認狀態要收回去，不然他看到訊息會直接又按「確定刪除」
+        $('#e-confirm').style.display = 'none';
+        $('#e-delete').style.display = '';
+        recoverStaleRow(res.message);
         return;
       }
       setEditMsg(res.message, 'err');
