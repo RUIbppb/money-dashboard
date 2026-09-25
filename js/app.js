@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.6';
+  const APP_VERSION = 'v3.7';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -1805,6 +1805,15 @@
       loadData();
       // 順便試一次補送：剛才在背景的時候網路可能已經恢復了
       tryFlushQueue(false);
+
+      // 也順便問一下有沒有新版本。
+      // 不主動問的話，iOS 的 PWA 可能好幾天都不會重新載入頁面，
+      // 新版程式推上去了手機卻完全沒感覺（cache-first 會一直回舊檔案）。
+      // 檢查到新版只會跳出上方那條橫幅，要不要套用還是他自己決定——
+      // 記帳打到一半被強制重新整理更討厭。
+      if (swRegistration && typeof swRegistration.update === 'function') {
+        try { swRegistration.update(); } catch (e) { /* 檢查失敗不影響使用 */ }
+      }
     });
   }
 
@@ -2081,9 +2090,19 @@
 
   // ---------- Service Worker 更新橫幅 ----------
 
+  /* Service Worker 的註冊物件先留著，切回 App 時要用它主動問「有沒有新版」。
+   *
+   * 為什麼非這樣不可：這支 Service Worker 是 cache-first（快取有就完全不碰網路），
+   * 所以只要它沒換版，你手機上跑的永遠是舊的 app.js 與 style.css。
+   * 而瀏覽器只有在「頁面重新載入」時才會去比對 service-worker.js 有沒有變——
+   * 偏偏 iOS 的 PWA 常常把 App 留在記憶體裡不重新載入，等於永遠檢查不到新版，
+   * 我這邊改了半天，手機上完全看不到。 */
+  var swRegistration = null;
+
   function initServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
     navigator.serviceWorker.register('service-worker.js').then(function (reg) {
+      swRegistration = reg;
       // 偵測到有新版本在等待
       function checkWaiting() {
         if (reg.waiting) showUpdateBanner(reg.waiting);
