@@ -380,7 +380,11 @@ input, select, button, textarea {
 .modal {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  /* ⚠️ 一定要高於底部導覽列（#bottom-nav）。
+     導覽列是 fixed 又排在 HTML 後面，層級相同時它會贏，
+     結果就是面板最下面的「刪除這筆」被導覽列整個蓋住看不到。
+     順便：面板打開時本來就不該還能切分頁，遮罩蓋住導覽列才是對的行為。 */
+  z-index: 60;
   background: rgba(0, 0, 0, 0.35);
   display: flex;
   align-items: flex-end;      /* 手機上從底部長出來，拇指構得到 */
