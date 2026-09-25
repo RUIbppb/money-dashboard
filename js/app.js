@@ -53,6 +53,17 @@
     return d + ' ' + t;
   }
 
+  /* 標題列那個「資料時間」專用：連秒一起顯示。
+   *
+   * 為什麼非要秒不可：伺服器端的資料 1 分鐘內可能被重抓好幾次，
+   * 只顯示到分鐘的話畫面上的字一模一樣，人根本看不出到底有沒有更新過，
+   * 會以為按了沒反應。（2026-09-26 RUI 實際回報的狀況） */
+  function fmtDateTimeSec(iso) {
+    if (!iso || iso.length < 19) return fmtDateTime(iso);
+    // 2026-07-14T19:51:35+08:00 -> 07/14 19:51:35
+    return iso.slice(5, 10).replace('-', '/') + ' ' + iso.slice(11, 19);
+  }
+
   // 交易的月份字串（time 已是台北時間，取前 7 碼即可）
   function txMonth(iso) {
     return (iso || '').slice(0, 7);
@@ -79,7 +90,7 @@
   function renderDataTimeBanner() {
     const banner = $('#offline-banner');
     const timeText = $('#data-time');
-    const gen = state.data && state.data.generated_at ? fmtDateTime(state.data.generated_at) : '—';
+    const gen = state.data && state.data.generated_at ? fmtDateTimeSec(state.data.generated_at) : '—';
 
     if (timeText) timeText.textContent = gen;
 
@@ -1963,8 +1974,10 @@
       if (now - lastReturnRefresh < RETURN_REFRESH_MIN_GAP_MS) return;
       lastReturnRefresh = now;
 
-      // 走快取：這條路徑一天會跑很多次，而且不是剛寫入完，用快取才快得起來
-      loadData({ fresh: false });
+      // 一定要強制重算（fresh）。這條路徑存在的理由就是「剛用捷徑記完帳切回來」，
+      // 而後端會把結果快取 60 秒——走快取的話很可能拿到那筆帳寫進去之前的版本，
+      // 畫面上就是看不到剛記的帳，跟這段程式要解決的問題一模一樣。
+      loadData();
       // 順便試一次補送：剛才在背景的時候網路可能已經恢復了
       tryFlushQueue(false);
 
@@ -1994,9 +2007,14 @@
 
       manualRefreshing = true;
       btn.textContent = '更新中…';
-      loadData().then(function () {
+      loadData().then(function (res) {
         manualRefreshing = false;
-        // 時間文字由 renderDataTimeBanner 寫回去，這裡不用自己設
+        // 時間文字由 renderDataTimeBanner 寫回去了。但如果資料本來就一樣，
+        // 畫面等於沒變化，按的人會懷疑到底有沒有抓——所以先閃一下「已更新」再換回時間。
+        if (res && res.ok) {
+          btn.textContent = '已更新 ✓';
+          setTimeout(function () { renderDataTimeBanner(); }, 1200);
+        }
       });
     });
   }
@@ -2114,8 +2132,8 @@
       });
       setSettingsMsg('設定已儲存。', 'ok');
       refreshRecordAccounts();
-      // 存好後自動抓一次，並跳到總覽頁（與使用說明一致）。走快取，開得快一點
-      loadData({ fresh: false });
+      // 存好後自動抓一次，並跳到總覽頁（與使用說明一致）。強制重算，確保看到的是真正最新的
+      loadData();
       switchTab('overview');
     });
 
@@ -2227,8 +2245,12 @@
    * 預設**強制後端重算**（fresh）。因為呼叫這支的地方大多是「剛寫入完」，
    * 而後端會把結果快取 60 秒——拿到快取裡的舊版本，剛記的那筆就會不見。
    *
-   * 只有「開 App」與「切回 App」這兩條路徑會明確傳 { fresh: false } 走快取，
-   * 那是為了快：後端重算一次要 4～6 秒，讀快取只要幾百毫秒。
+   * 2026-09-26 起**所有呼叫點都走 fresh**，不再有人傳 { fresh: false }。
+   * 原本開 App／切回 App 走快取是為了快（快取幾百毫秒 vs 重算 4～6 秒），
+   * 但那兩條路徑剛好都是「可能剛用捷徑記完帳」的時候，拿到快取就看不到那筆，
+   * 而且畫面上的「資料時間」會卡住不動，看起來就像壞掉。
+   * 速度改由本機快取負責（開 App 先用上次的資料把畫面畫滿，這一趟在背景補最新的）。
+   * { fresh: false } 這個參數留著，未來要做背景輪詢之類的還用得到。
    */
   function loadData(opts) {
     const options = opts || { fresh: true };
@@ -2458,8 +2480,10 @@
       // 也支援用網址參數指定，例如 index.html?tab=overview 會直接開總覽——
       // 你可以用 Safari 的「加入主畫面」多做一顆圖示，等於自己 DIY 一個捷徑。
       switchTab(startTabFromUrl() || 'record');
-      // 有設定就抓一次。走快取——開 App 的速度最有感，而這時候不會有剛寫入的資料
-      loadData({ fresh: false });
+      // 有設定就抓一次，而且強制重算。
+      // 不怕慢：上面已經用本機快取把畫面畫好了，這一趟是在背景補最新的，
+      // 他看到的是「秒開 + 幾秒後時間自己跳新」，不是盯著空白畫面等。
+      loadData();
     }
 
     initServiceWorker();
