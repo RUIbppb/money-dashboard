@@ -361,6 +361,86 @@ input, select, button, textarea {
 /* 「其餘 N 項」那一行：不是真的項目，是被截斷的那些加總，顏色壓下去 */
 .income-row .muted { color: var(--text-sub); }
 
+/* ---------- 明細卡片上的「⋯」與修改／刪除 ---------- */
+.tx-more {
+  background: none;
+  border: none;
+  color: var(--text-sub);
+  font-size: 13pt;
+  line-height: 1;
+  padding: 2px 8px;
+  margin-left: 6px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.tx-more:active { background: var(--tint); }
+
+/* ---------- 彈出面板（修改一筆帳） ---------- */
+/* 用 fixed 蓋滿整個畫面。底層的明細不會跟著捲動，因為打開時會把 body 鎖住 */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;      /* 手機上從底部長出來，拇指構得到 */
+  justify-content: center;
+  padding: 0;
+}
+.modal-box {
+  background: var(--card);
+  border-radius: 14px 14px 0 0;
+  padding: 20px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+  width: 100%;
+  max-width: 560px;
+  max-height: 88vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-bottom: none;
+}
+.modal-title { font-size: 14pt; font-weight: 600; margin-bottom: 6px; }
+.modal-meta {
+  font-size: 10.5pt;
+  color: var(--text-sub);
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.modal-box .input { margin-bottom: 14px; }
+.modal-actions { display: flex; gap: 10px; margin-top: 4px; }
+.modal-actions button { flex: 1; }
+
+/* 刪除放在最底下、跟其他操作隔開，不要讓人手滑點到 */
+.modal-danger {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+.btn-danger {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--neg);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--neg);
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn-danger:disabled { opacity: 0.55; cursor: default; }
+.confirm-row { margin-top: 10px; }
+.confirm-text {
+  display: block;
+  font-size: 11pt;
+  color: var(--neg);
+  margin-bottom: 10px;
+}
+.confirm-row button { margin-bottom: 8px; }
+
+/* ---------- 設定頁：批次改名 ---------- */
+.rename-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 12px; }
+.rename-row .input { flex: 1; margin-bottom: 0; }
+.rename-arrow { align-self: center; color: var(--text-sub); font-size: 12pt; }
+
 /* ---------- 預算：今天還能花多少 ---------- */
 /* 字級刻意比「月底預估」的 24pt 小一階：這是預算區的引言，不是這一頁的主角 */
 .allowance {

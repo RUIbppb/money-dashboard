@@ -267,7 +267,9 @@ const JZ = (function () {
   /*
    * 送出一筆記帳或轉帳。payload 由 app.js 準備好，這裡只負責送。
    * 一般記帳：{ item, amount, category, account, note }
-   * 轉帳：    { item, amount, account, note, to_account }（category 可省略）
+   * 轉帳：    { item, amount, category, account, note, to_account }
+   *           ⚠️ category 不能省略，後端第一道檢查就會擋掉空欄位。
+   *           app.js 固定帶 '轉帳' 當佔位值，實際寫進試算表時會變成轉出／轉入
    * 回傳：{ ok: true, message } 或 { ok: false, message }
    *
    * ★技術重點：body 是 JSON 字串，但「不設 Content-Type」，
@@ -329,6 +331,46 @@ const JZ = (function () {
         }
         return { ok: false, message: '沒送出去。' + friendlyNetError(err, WRITE_TIMEOUT_MS / 1000) + '。' };
       });
+  }
+
+  /* ---------- 修改、刪除、批次改名 ----------
+   *
+   * 三個都是借用 submitEntry 把東西送到同一支寫入 API，差別只在多帶一個 action。
+   *
+   * 【為什麼這三種可以放心重送，新增卻不行】
+   * 後端會拿 verify（時間＋金額＋項目）比對那一列真正的內容，對不上就拒絕。
+   * 所以就算逾時後再送一次：
+   *   - 修改：本來就是改成同一個值，重複做沒差
+   *   - 刪除：第一次成功的話，那一列已經不是原來的內容了，第二次會被擋下來
+   *   - 改名：第二次會回報「找不到」，改 0 筆
+   * 新增沒有這層保護，所以那邊的紀律維持不變：逾時一律不自動重送。
+   *
+   * 【一律不排隊】
+   * 這三種操作都建立在「列號」上，而列號會隨著資料變動而位移。
+   * 離線存起來、幾小時後才補送，那時候的列號很可能已經指向別筆帳了。
+   */
+
+  /**
+   * 修改某一筆。
+   * @param row     試算表列號（唯讀 API 回傳的 row）
+   * @param verify  { time, amount, item } 用來確認那一列真的是這筆帳
+   * @param changes 要改的欄位，只帶想改的就好（item/amount/category/account/note）
+   */
+  function updateEntry(row, verify, changes) {
+    return submitEntry(Object.assign({ action: 'update', row: row, verify: verify }, changes || {}));
+  }
+
+  /** 刪除某一筆。verify 同上，對不上後端會拒絕，不會誤刪隔壁那筆 */
+  function deleteEntry(row, verify) {
+    return submitEntry({ action: 'delete', row: row, verify: verify });
+  }
+
+  /**
+   * 把某個名稱一次全部改掉。
+   * @param field 'item'（項目）或 'account'（支付帳戶）
+   */
+  function renameField(field, from, to) {
+    return submitEntry({ action: 'rename', field: field, from: from, to: to });
   }
 
   /* ---------- 離線記帳排隊 ----------
@@ -480,6 +522,9 @@ const JZ = (function () {
     secondsUntilCanRefresh: secondsUntilCanRefresh,
     fetchAll: fetchAll,
     submitEntry: submitEntry,
+    updateEntry: updateEntry,
+    deleteEntry: deleteEntry,
+    renameField: renameField,
     testRead: testRead
   };
 })();

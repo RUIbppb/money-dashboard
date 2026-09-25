@@ -193,6 +193,45 @@
         <button id="detail-more" class="btn-secondary" style="display:none">載入更多</button>
       </section>
 
+      <!-- 修改／刪除一筆帳的彈出面板。平常收著，從明細的「⋯」打開 -->
+      <div id="edit-modal" class="modal" style="display:none">
+        <div class="modal-box">
+          <div class="modal-title">修改這筆帳</div>
+          <div id="edit-meta" class="modal-meta"></div>
+
+          <label class="field-label" for="e-amount">金額</label>
+          <input id="e-amount" class="input" type="number" inputmode="decimal" min="0" step="1" />
+
+          <label class="field-label" for="e-item">項目</label>
+          <input id="e-item" class="input" type="text" />
+
+          <label class="field-label" for="e-category">主分類</label>
+          <select id="e-category" class="input"></select>
+
+          <label class="field-label" for="e-account">支付帳戶</label>
+          <select id="e-account" class="input"></select>
+
+          <label class="field-label" for="e-note">備註</label>
+          <input id="e-note" class="input" type="text" placeholder="可留空，可加 #專案標籤" />
+
+          <div id="edit-msg" class="record-msg" style="display:none"></div>
+
+          <div class="modal-actions">
+            <button id="e-cancel" class="btn-secondary" type="button">取消</button>
+            <button id="e-save" class="btn-primary" type="button">儲存</button>
+          </div>
+
+          <div class="modal-danger">
+            <button id="e-delete" class="btn-danger" type="button">刪除這筆</button>
+            <div id="e-confirm" class="confirm-row" style="display:none">
+              <span class="confirm-text">確定要刪掉？刪了就找不回來。</span>
+              <button id="e-delete-yes" class="btn-danger" type="button">確定刪除</button>
+              <button id="e-delete-no" class="btn-secondary" type="button">算了</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ===== 記帳 ===== -->
       <section id="tab-record" class="tab-section">
         <div id="record-gate" class="gate-hint" style="display:none"></div>
@@ -298,6 +337,26 @@
               <button class="toggle-eye" data-target="set-write-token" type="button">顯示</button>
             </span>
           </label>
+        </div>
+
+        <!-- 整理名稱：把打錯字或重複的名稱一次全部改掉 -->
+        <div class="block">
+          <div class="block-title">整理名稱</div>
+          <div class="field-hint" style="margin-bottom:12px">
+            同一件事打成兩個名字（例如「超勤」與「超勤加班」），報表上會被拆成兩列。
+            這裡可以一次全部改掉。<b>清單依筆數由少到多排，排在最前面的通常就是打錯的那個。</b>
+          </div>
+          <select id="rn-field" class="input">
+            <option value="item">項目</option>
+            <option value="account">支付帳戶</option>
+          </select>
+          <div class="rename-row">
+            <select id="rn-from" class="input"></select>
+            <span class="rename-arrow">→</span>
+            <input id="rn-to" class="input" type="text" placeholder="要改成什麼" />
+          </div>
+          <button id="rn-go" class="btn-secondary" type="button">開始改</button>
+          <div id="rn-msg" class="record-msg" style="display:none"></div>
         </div>
 
         <div class="block">

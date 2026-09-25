@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.3';
+  const APP_VERSION = 'v3.4';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -901,6 +901,13 @@
 
     const noteHtml = t.note ? '<div class="tx-note">' + escapeHtml(t.note) + '</div>' : '';
 
+    // 只有後端回得出列號時才給「⋯」。
+    // 這樣在唯讀 API 還沒更新完之前，前端先上線也不會出現一顆按了沒反應的按鈕。
+    const rowNo = Number(t.row) || 0;
+    const moreBtn = rowNo > 0
+      ? '<button type="button" class="tx-more" data-row="' + rowNo + '" title="修改或刪除">⋯</button>'
+      : '';
+
     return '<div class="tx">' +
       '<div class="tx-top">' +
         '<span class="tx-item">' + escapeHtml(t.item || '') + '</span>' +
@@ -908,10 +915,206 @@
       '</div>' +
       '<div class="tx-sub">' +
         '<span>' + fmtDateTime(t.time) + '</span>' +
-        '<span class="tx-tags">' + escapeHtml(t.category || '') + ' · ' + escapeHtml(t.account || '') + '　<em>' + escapeHtml(t.type || '') + '</em></span>' +
+        '<span class="tx-tags">' + escapeHtml(t.category || '') + ' · ' + escapeHtml(t.account || '') + '　<em>' + escapeHtml(t.type || '') + '</em>' + moreBtn + '</span>' +
       '</div>' +
       noteHtml +
       '</div>';
+  }
+
+  /* ---------- 修改／刪除一筆帳 ----------
+   *
+   * 靠唯讀 API 回傳的列號（row）定位試算表的那一列，送出時附上「時間＋金額＋項目」，
+   * 後端會先比對那一列真的是這一筆才動手。
+   *
+   * 為什麼要這層保險：列號是「上次抓資料時」的狀態。如果這中間你自己在試算表刪了一列，
+   * 後面所有列號都會往上移一格，照舊列號去刪就會刪到隔壁那筆帳，而且你不會發現。
+   *
+   * 轉帳（轉入／轉出）只給刪不給改：一次轉帳是兩列，改其中一列會讓兩邊對不起來。
+   */
+  var editingTx = null;   // 目前正在編輯的那一筆
+
+  function isTransferTx(t) {
+    return t && (t.type === '轉入' || t.type === '轉出');
+  }
+
+  function setEditMsg(text, kind) {
+    const el = $('#edit-msg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'record-msg' + (kind ? ' ' + kind : '');
+    el.style.display = text ? 'block' : 'none';
+  }
+
+  function openEditModal(tx) {
+    const modal = $('#edit-modal');
+    if (!modal || !tx) return;
+
+    editingTx = tx;
+    setEditMsg('', '');
+    // 每次打開都把刪除確認收回去，不要讓上一次按到一半的狀態殘留
+    $('#e-confirm').style.display = 'none';
+    $('#e-delete').style.display = '';
+
+    const transfer = isTransferTx(tx);
+
+    // 分類下拉：轉帳的分類（轉入／轉出）不在記帳用的清單裡，
+    // 所以那種情況直接把它自己放進去並鎖住，不要讓畫面顯示一個對不上的值
+    const catSel = $('#e-category');
+    if (catSel) {
+      if (transfer) {
+        catSel.innerHTML = '<option value="' + escapeHtml(tx.category) + '">' + escapeHtml(tx.category) + '</option>';
+      } else {
+        let html = '<optgroup label="支出">';
+        EXPENSE_CATEGORIES.forEach(function (c) { html += '<option value="' + c + '">' + c + '</option>'; });
+        html += '</optgroup><optgroup label="收入">';
+        INCOME_CATEGORIES.forEach(function (c) { html += '<option value="' + c + '">' + c + '</option>'; });
+        html += '</optgroup>';
+        catSel.innerHTML = html;
+      }
+      catSel.value = tx.category || '';
+    }
+
+    // 帳戶下拉：用目前的帳戶名單；萬一這筆的帳戶名打錯字（不在名單裡），
+    // 也要把它加進去，否則畫面會顯示成別的帳戶，一存檔就改錯了
+    const accSel = $('#e-account');
+    if (accSel) {
+      const d = state.data;
+      const names = (d && d.accounts) ? d.accounts.map(function (a) { return a.name; }) : [];
+      let html = '';
+      names.forEach(function (n) { html += '<option value="' + escapeHtml(n) + '">' + escapeHtml(n) + '</option>'; });
+      if (tx.account && names.indexOf(tx.account) < 0) {
+        html += '<option value="' + escapeHtml(tx.account) + '">⚠ ' + escapeHtml(tx.account) + '（不在名單裡）</option>';
+      }
+      accSel.innerHTML = html;
+      accSel.value = tx.account || '';
+    }
+
+    $('#e-amount').value = Math.abs(Number(tx.amount) || 0);
+    $('#e-item').value = tx.item || '';
+    $('#e-note').value = tx.note || '';
+
+    const meta = $('#edit-meta');
+    if (meta) {
+      let text = fmtDateTime(tx.time) + '　第 ' + tx.row + ' 列';
+      if (transfer) {
+        text += '｜這是一筆轉帳的其中一半，只能刪除。刪掉之後記得把另一半（' +
+          (tx.type === '轉出' ? '轉入' : '轉出') + '）也刪掉，不然帳會對不起來。';
+      }
+      meta.textContent = text;
+    }
+
+    // 轉帳不給改，只給刪
+    ['#e-amount', '#e-item', '#e-category', '#e-account', '#e-note', '#e-save'].forEach(function (sel) {
+      const el = $(sel);
+      if (el) el.disabled = transfer;
+    });
+
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';   // 底下的明細不要跟著捲
+  }
+
+  function closeEditModal() {
+    const modal = $('#edit-modal');
+    if (modal) modal.style.display = 'none';
+    document.body.style.overflow = '';
+    editingTx = null;
+  }
+
+  /** 後端要的身分證：對不上就拒絕動手 */
+  function verifyOf(tx) {
+    return { time: tx.time, amount: tx.amount, item: tx.item };
+  }
+
+  function saveEdit() {
+    if (!editingTx) return;
+    const tx = editingTx;
+
+    const amount = parseFloat($('#e-amount').value);
+    const item = ($('#e-item').value || '').trim();
+    const category = $('#e-category').value || '';
+    const account = $('#e-account').value || '';
+    const note = ($('#e-note').value || '').trim();
+
+    if (!(amount > 0)) { setEditMsg('金額要大於 0。', 'err'); return; }
+    if (!item) { setEditMsg('項目不能留空。', 'err'); return; }
+    if (!account) { setEditMsg('請選擇支付帳戶。', 'err'); return; }
+
+    const btn = $('#e-save');
+    lockBtn(btn, true, '儲存中…');
+    setEditMsg('儲存中…', '');
+
+    JZ.updateEntry(tx.row, verifyOf(tx), {
+      amount: amount, item: item, category: category, account: account, note: note
+    }).then(function (res) {
+      lockBtn(btn, false, '儲存');
+      if (res.ok) {
+        closeEditModal();
+        loadData();
+        return;
+      }
+      // 逾時的情況：可能已經改好了，重抓一次讓他自己看
+      if (res.timeout) {
+        setEditMsg(res.message + '（重新抓一次資料，請確認是不是已經改好了）', 'err');
+        loadData();
+        return;
+      }
+      setEditMsg(res.message, 'err');
+    });
+  }
+
+  function doDelete() {
+    if (!editingTx) return;
+    const tx = editingTx;
+
+    const yes = $('#e-delete-yes');
+    lockBtn(yes, true, '刪除中…');
+    setEditMsg('刪除中…', '');
+
+    JZ.deleteEntry(tx.row, verifyOf(tx)).then(function (res) {
+      lockBtn(yes, false, '確定刪除');
+      if (res.ok) {
+        closeEditModal();
+        loadData();
+        return;
+      }
+      if (res.timeout) {
+        setEditMsg(res.message + '（重新抓一次資料，請確認是不是已經刪掉了）', 'err');
+        loadData();
+        return;
+      }
+      setEditMsg(res.message, 'err');
+    });
+  }
+
+  function initEditModal() {
+    const cancel = $('#e-cancel');
+    if (cancel) cancel.addEventListener('click', closeEditModal);
+
+    const save = $('#e-save');
+    if (save) save.addEventListener('click', saveEdit);
+
+    // 點遮罩（面板外面）也能關掉
+    const modal = $('#edit-modal');
+    if (modal) {
+      modal.addEventListener('click', function (e) {
+        if (e.target === modal) closeEditModal();
+      });
+    }
+
+    const del = $('#e-delete');
+    if (del) del.addEventListener('click', function () {
+      $('#e-confirm').style.display = 'block';
+      del.style.display = 'none';
+    });
+
+    const no = $('#e-delete-no');
+    if (no) no.addEventListener('click', function () {
+      $('#e-confirm').style.display = 'none';
+      $('#e-delete').style.display = '';
+    });
+
+    const yes = $('#e-delete-yes');
+    if (yes) yes.addEventListener('click', doDelete);
   }
 
   // 摘要列：筆數與合計。
@@ -1566,6 +1769,97 @@
     });
   }
 
+  /* ---------- 整理名稱（批次改名） ----------
+   *
+   * 解決「同一件事打成兩個名字」——例如收入項目裡「超勤」與「超勤加班」，
+   * 報表上被拆成兩列，看起來像兩件事。
+   *
+   * 下拉刻意**依筆數由少到多排**：打錯字的版本通常只出現一兩次，
+   * 這樣它會自動浮到最上面，不用自己在幾十個名稱裡找。
+   */
+  function refreshRenameOptions() {
+    const sel = $('#rn-from');
+    if (!sel) return;
+
+    const d = state.data;
+    const field = $('#rn-field') ? $('#rn-field').value : 'item';
+    const key = (field === 'account') ? 'account' : 'item';
+
+    const counts = {};
+    (d && d.transactions ? d.transactions : []).forEach(function (t) {
+      const name = ((t && t[key]) || '').trim();
+      if (!name) return;
+      counts[name] = (counts[name] || 0) + 1;
+    });
+
+    const names = Object.keys(counts).sort(function (a, b) {
+      if (counts[a] !== counts[b]) return counts[a] - counts[b];   // 少的在前
+      return a < b ? -1 : (a > b ? 1 : 0);
+    });
+
+    if (names.length === 0) {
+      sel.innerHTML = '<option value="">（還沒有資料）</option>';
+      return;
+    }
+
+    const keep = sel.value;
+    let html = '';
+    names.forEach(function (n) {
+      html += '<option value="' + escapeHtml(n) + '">' + escapeHtml(n) + '（' + counts[n] + ' 筆）</option>';
+    });
+    sel.innerHTML = html;
+    if (keep && names.indexOf(keep) >= 0) sel.value = keep;
+  }
+
+  function setRenameMsg(text, kind) {
+    const el = $('#rn-msg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'record-msg' + (kind ? ' ' + kind : '');
+    el.style.display = text ? 'block' : 'none';
+  }
+
+  function initRename() {
+    const fieldSel = $('#rn-field');
+    if (fieldSel) fieldSel.addEventListener('change', function () {
+      refreshRenameOptions();
+      setRenameMsg('', '');
+    });
+
+    const go = $('#rn-go');
+    if (!go) return;
+
+    go.addEventListener('click', function () {
+      const field = $('#rn-field').value || 'item';
+      const from = $('#rn-from').value || '';
+      const to = ($('#rn-to').value || '').trim();
+
+      if (!from) { setRenameMsg('請先選一個要改的名稱。', 'err'); return; }
+      if (!to) { setRenameMsg('請填要改成什麼名稱。', 'err'); return; }
+      if (from === to) { setRenameMsg('新舊名稱一樣，不用改。', 'err'); return; }
+
+      lockBtn(go, true, '改名中…');
+      setRenameMsg('改名中…', '');
+
+      JZ.renameField(field, from, to).then(function (res) {
+        lockBtn(go, false, '開始改');
+        if (res.ok) {
+          setRenameMsg(res.message, 'ok');
+          $('#rn-to').value = '';
+          loadData();      // 重抓，讓下拉與報表跟著更新
+          return;
+        }
+        if (res.timeout) {
+          // 改名重送是安全的（第二次會找不到舊名稱、改 0 筆），但還是先讓他自己確認
+          setRenameMsg(res.message + '（重新抓一次資料，請確認是不是已經改好了）', 'err');
+          loadData();
+          return;
+        }
+        setRenameMsg(res.message, 'err');
+      });
+    });
+  }
+
   // ---------- 設定頁 ----------
 
   function loadSettingsIntoForm() {
@@ -1717,6 +2011,7 @@
     refreshRecordAccounts();
     applyRecordPrefill();   // 要排在帳戶下拉生出來之後
     renderQuickItems();
+    refreshRenameOptions();
     // 圖表只有在圖表頁可見時畫，這裡若正在圖表頁就順手重畫
     if ($('#tab-charts') && $('#tab-charts').classList.contains('active')) {
       renderCharts();
@@ -1842,6 +2137,22 @@
     }
     if ($('#detail-more')) $('#detail-more').addEventListener('click', loadMoreDetail);
 
+    // 明細卡片右下角的「⋯」：打開修改／刪除面板。
+    // 綁在容器上（事件委派），因為卡片每次篩選都會重新畫
+    const detailListEl = $('#detail-list');
+    if (detailListEl) {
+      detailListEl.addEventListener('click', function (e) {
+        const btn = e.target && e.target.closest ? e.target.closest('.tx-more') : null;
+        if (!btn) return;
+        const rowNo = Number(btn.getAttribute('data-row')) || 0;
+        if (!rowNo) return;
+        // 從目前的篩選結果裡找那一筆，不另外存一份，免得兩邊不同步
+        const found = (detailState.rows || []).filter(function (t) { return Number(t.row) === rowNo; })[0];
+        if (found) openEditModal(found);
+      });
+    }
+    initEditModal();
+
     // 總覽的專案標籤可以點：點下去跳到明細並自動篩出這個標籤
     const tagListEl = $('#tag-list');
     if (tagListEl) {
@@ -1874,6 +2185,7 @@
 
     initRecordForm();
     initSettings();
+    initRename();
     initTheme();
     loadSettingsIntoForm();
 
