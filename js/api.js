@@ -519,6 +519,9 @@ const JZ = (function () {
     clearQueue: clearQueue,
     isDefinitelyOffline: isDefinitelyOffline,
     getCachedData: getCachedData,
+    // 前端在本地改過資料（改一筆、刪一筆）之後要把快取一起更新。
+    // 不更新的話，下次重抓失敗時會退回舊快取，剛刪掉的那筆又會冒出來
+    saveCachedData: saveCachedData,
     secondsUntilCanRefresh: secondsUntilCanRefresh,
     fetchAll: fetchAll,
     submitEntry: submitEntry,

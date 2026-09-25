@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.9';
+  const APP_VERSION = 'v3.10';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -1028,6 +1028,49 @@
     return { time: tx.time, amount: tx.amount, item: tx.item };
   }
 
+  /* ---------- 改完立刻反映在畫面上 ----------
+   *
+   * 送出成功之後當然會重新抓一次資料，但那要等伺服器回應，慢的時候好幾秒。
+   * 這中間畫面還是舊的——剛刪掉的帳明明還在，你會以為沒刪成功又點一次。
+   *
+   * 更麻煩的是列號：試算表刪掉一列之後，後面每一筆都會往上移一格。
+   * 在新資料回來之前，本地手上的列號**全部都是過期的**，這時候去改別筆就會對不上。
+   * （對不上會被後端擋下來、也會自動修復，但讓使用者撞到那個流程本身就是體驗不好。）
+   *
+   * 所以這裡在本地同步做一次一模一樣的調整，畫面立刻正確，重抓只是最後的保險。
+   */
+  function removeTxLocally(deletedRow) {
+    if (!state.data || !state.data.transactions) return;
+    const kept = [];
+    state.data.transactions.forEach(function (t) {
+      const r = Number(t.row) || 0;
+      if (r === deletedRow) return;              // 這就是被刪掉的那一筆
+      if (r > deletedRow) t.row = r - 1;         // 後面的全部往上移一格
+      kept.push(t);
+    });
+    state.data.transactions = kept;
+  }
+
+  function patchTxLocally(row, changes) {
+    if (!state.data || !state.data.transactions) return;
+    state.data.transactions.forEach(function (t) {
+      if (Number(t.row) !== Number(row)) return;
+      Object.keys(changes).forEach(function (k) { t[k] = changes[k]; });
+    });
+  }
+
+  /** 本地資料動過之後，把快取一起更新、再把明細與相關區塊重畫一次。
+   *
+   * ⚠️ 更新快取這一步不能省。重抓資料如果失敗（沒網路、逾時），
+   * fetchAll 會退回 localStorage 的快取——那份還是舊的，
+   * 剛刪掉的那筆就會整個冒回來，看起來像沒刪成功。 */
+  function repaintAfterLocalChange() {
+    if (state.data && JZ.saveCachedData) JZ.saveCachedData(state.data);
+    initDetailFilters();
+    applyDetailFilter();
+    refreshRenameOptions();
+  }
+
   /*
    * 後端說「這一列跟你看到的不一樣」時的自動修復。
    *
@@ -1100,7 +1143,12 @@
     }).then(function (res) {
       lockBtn(btn, false, '儲存');
       if (res.ok) {
+        // 先在本地改好讓畫面立刻正確，再背景重抓做最終同步
+        patchTxLocally(tx.row, {
+          amount: amount, item: item, category: category, account: account, note: note
+        });
         closeEditModal();
+        repaintAfterLocalChange();
         loadData();
         return;
       }
@@ -1130,7 +1178,10 @@
     JZ.deleteEntry(tx.row, verifyOf(tx)).then(function (res) {
       lockBtn(yes, false, '確定刪除');
       if (res.ok) {
+        // 本地也刪掉、並把後面的列號往上移一格，跟試算表保持一致
+        removeTxLocally(tx.row);
         closeEditModal();
+        repaintAfterLocalChange();
         loadData();
         return;
       }
