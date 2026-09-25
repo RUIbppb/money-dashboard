@@ -81,6 +81,8 @@
         <!-- 本月預算：只顯示有設預算的分類，沒設的（例如貸款）不會出現 -->
         <div id="budget-section" class="block" style="display:none">
           <div class="block-title">本月預算</div>
+          <!-- 「今天還能花多少」放在進度條上面：同一份數字，這個講法才會影響當下的決定 -->
+          <div id="budget-allowance" class="allowance" style="display:none"></div>
           <div id="budget-list" class="budget-list"></div>
           <div id="budget-note" class="budget-note" style="display:none"></div>
         </div>
@@ -182,7 +184,7 @@
           </div>
           <div class="filter-row">
             <select id="detail-acct" class="input"></select>
-            <input id="detail-kw" class="input" type="text" placeholder="搜尋項目或備註…" />
+            <input id="detail-kw" class="input" type="text" placeholder="搜尋項目、備註或金額…" />
           </div>
         </div>
         <!-- 篩選結果的筆數與合計（永遠算完整結果，跟畫面上顯示幾筆無關）-->

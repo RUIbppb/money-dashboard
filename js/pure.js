@@ -270,6 +270,15 @@ var JZPure = (function () {
     // 用包含比對的話，要抓的那幾筆會混在正確的裡面，等於白做。
     var acct = safeStr(f.acct).trim() || '__all';
 
+    // 關鍵字如果整串是數字（允許帶千分位逗號），金額也要一起找。
+    // 沒有這一段的話，「上個月那筆三千多的是什麼」永遠搜不到——
+    // 因為原本只比對項目和備註。金額用「包含」比對，跟文字搜尋的直覺一致。
+    var kwNumber = '';
+    if (kw) {
+      var stripped = kw.replace(/,/g, '');
+      if (/^\d+(\.\d+)?$/.test(stripped)) kwNumber = stripped;
+    }
+
     var result = [];
     for (var i = 0; i < transactions.length; i++) {
       var tx = transactions[i] || {};
@@ -279,7 +288,11 @@ var JZPure = (function () {
       if (acct !== '__all' && safeStr(tx.account).trim() !== acct) continue;
       if (kw) {
         var hay = (safeStr(tx.item) + ' ' + safeStr(tx.note)).toLowerCase();
-        if (hay.indexOf(kw) < 0) continue;
+        var hit = hay.indexOf(kw) >= 0;
+        if (!hit && kwNumber) {
+          hit = String(Math.abs(toNumber(tx.amount))).indexOf(kwNumber) >= 0;
+        }
+        if (!hit) continue;
       }
       result.push(tx);
     }
@@ -725,9 +738,80 @@ var JZPure = (function () {
   }
 
   // ============================================================
+  // 八、dailyAllowance —— 今天還能花多少
+  // ============================================================
+  /*
+   * 「已用 9,236 / 9,000」講的是過去發生了什麼；
+   * 「今天還能花 228」才會影響你現在要不要買這杯咖啡。同一份資料，換個講法就有行動力。
+   *
+   * 日期由呼叫端傳進來（day 與 daysInMonth），因為 pure.js 不可以自己 new Date()
+   * ——那會用到裝置的時區，出國或手機時區設錯就會算錯月份。
+   *
+   * @param budgets      唯讀 API 的 budgets 陣列
+   * @param currentMonth 'yyyy-MM'
+   * @param day          今天是幾號
+   * @param daysInMonth  這個月有幾天
+   */
+  function dailyAllowance(budgets, currentMonth, day, daysInMonth) {
+    var empty = {
+      ok: false, daysLeft: 0, totalLimit: 0, totalSpent: 0,
+      totalRemaining: 0, perDay: 0, overCategories: []
+    };
+    if (!budgets || !budgets.length) return empty;
+
+    var totalLimit = 0;
+    var totalSpent = 0;
+    var over = [];
+    var found = false;
+
+    for (var i = 0; i < budgets.length; i++) {
+      var b = budgets[i] || {};
+      if (safeStr(b.month) !== currentMonth) continue;
+
+      var limit = toNumber(b.limit);
+      // 沒設預算的分類（例如刻意留空的貸款）不算進來
+      if (limit <= 0) continue;
+
+      var spent = toNumber(b.spent);
+      found = true;
+      totalLimit += limit;
+      totalSpent += spent;
+      if (spent > limit) over.push({ category: safeStr(b.category), amount: spent - limit });
+    }
+
+    if (!found) return empty;
+
+    // 剩餘天數含今天。最少算 1 天——今天就是月底最後一天時不可以變成 0（會除以零）
+    var left = toNumber(daysInMonth) - toNumber(day) + 1;
+    if (!(left > 0)) left = 1;
+
+    var remaining = round2(totalLimit - totalSpent);
+    // 整體已經超支的話，「今天還能花」就是 0。
+    // 給一個負數只會讓人愣住——還要自己換算那是什麼意思
+    var perDay = remaining > 0 ? Math.round(remaining / left) : 0;
+
+    // 超支的依金額大到小，最嚴重的先被看到
+    over.sort(function (a, b) {
+      if (b.amount !== a.amount) return b.amount - a.amount;
+      return a.category < b.category ? -1 : (a.category > b.category ? 1 : 0);
+    });
+
+    return {
+      ok: true,
+      daysLeft: left,
+      totalLimit: round2(totalLimit),
+      totalSpent: round2(totalSpent),
+      totalRemaining: remaining,
+      perDay: perDay,
+      overCategories: over.map(function (o) { return o.category; })
+    };
+  }
+
+  // ============================================================
   // 對外公開的介面
   // ============================================================
   return {
+    dailyAllowance: dailyAllowance,
     parseAmountFromText: parseAmountFromText,
     computeAccountMismatch: computeAccountMismatch,
     filterTransactions: filterTransactions,

@@ -361,6 +361,17 @@ input, select, button, textarea {
 /* 「其餘 N 項」那一行：不是真的項目，是被截斷的那些加總，顏色壓下去 */
 .income-row .muted { color: var(--text-sub); }
 
+/* ---------- 預算：今天還能花多少 ---------- */
+/* 字級刻意比「月底預估」的 24pt 小一階：這是預算區的引言，不是這一頁的主角 */
+.allowance {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.allowance-main { font-size: 18pt; font-weight: 700; letter-spacing: 0.5px; }
+.allowance-main.none-left { color: var(--neg); }
+.allowance-sub { font-size: 10.5pt; color: var(--text-sub); margin-top: 4px; }
+
 /* ---------- 總覽：月底預估 ---------- */
 .forecast-main { font-size: 24pt; font-weight: 700; letter-spacing: 1px; }
 .forecast-sub { font-size: 10.5pt; color: var(--text-sub); margin-top: 2px; }

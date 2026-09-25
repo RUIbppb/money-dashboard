@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.2';
+  const APP_VERSION = 'v3.3';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -201,6 +201,8 @@
     }
     wrap.style.display = '';
 
+    renderAllowance(d, currentMonth);
+
     // 超支的排最前面，其次是用得最兇的——最該被看到的放最上面
     rows.sort(function (a, b) {
       return (Number(b.ratio) || 0) - (Number(a.ratio) || 0);
@@ -249,6 +251,45 @@
     }
   }
 
+  /* ---------- 今天還能花多少 ----------
+   * 進度條說的是「已經花掉多少」，那是過去式；
+   * 這一行說的是「現在起到月底，平均每天還能花多少」，那才會影響你要不要買下手上這杯咖啡。
+   *
+   * 整體超支時不顯示負數——給一個負的金額只會讓人愣一下還要自己換算，
+   * 直接講「今天的預算用完了」比較快。
+   */
+  function renderAllowance(d, currentMonth) {
+    const el = $('#budget-allowance');
+    if (!el) return;
+
+    const today = taipeiToday();
+    const a = JZ_PURE().dailyAllowance(d.budgets || [], currentMonth, today.day, today.daysInMonth);
+
+    if (!a.ok) {
+      el.style.display = 'none';
+      return;
+    }
+
+    const main = a.perDay > 0
+      ? '今天還能花 ' + money(a.perDay)
+      : '今天的預算用完了';
+
+    let sub;
+    if (a.totalRemaining > 0) {
+      sub = '剩 ' + a.daysLeft + ' 天，預算還有 ' + money(a.totalRemaining);
+    } else {
+      sub = '剩 ' + a.daysLeft + ' 天，整體已經超出 ' + money(Math.abs(a.totalRemaining));
+    }
+    if (a.overCategories.length > 0) {
+      sub += '（' + a.overCategories.join('、') + '超支）';
+    }
+
+    el.innerHTML =
+      '<div class="allowance-main' + (a.perDay > 0 ? '' : ' none-left') + '">' + escapeHtml(main) + '</div>' +
+      '<div class="allowance-sub">' + escapeHtml(sub) + '</div>';
+    el.style.display = '';
+  }
+
   function renderAccountWarning(d) {
     const el = $('#account-warning');
     if (!el) return;
@@ -261,7 +302,6 @@
 
     let msg;
     if (r.unknownAccounts.length > 0) {
-      // 找得到是哪個名字打錯 → 直接告訴他要去改什麼
       // 找得到是哪個名字打錯 → 做成可以點的，點下去直接看到是哪幾筆。
       // 只告訴他「有問題」卻要他自己去試算表大海撈針，等於把最麻煩的一段丟回給他
       const parts = r.unknownAccounts.map(function (u) {
@@ -714,7 +754,8 @@
       yearTotals: function () { return {}; },
       budgetAchievement: function () { return []; },
       forecastMonthEnd: function () { return null; },
-      incomeItems: function () { return []; }
+      incomeItems: function () { return []; },
+      dailyAllowance: function () { return { ok: false, overCategories: [] }; }
     };
   }
 
