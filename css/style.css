@@ -24,6 +24,7 @@
   --warn-border: #E3D5B8;
   --tint: #F3EEE4;        /* 淡米色底：離線橫幅、辨識狀態列、記帳未設定提示 */
   --tint-2: #EFEBE4;      /* 稍深一階的底：一般記帳／轉帳的切換列 */
+  --danger-tint: #F7EDEA; /* 刪除確認的底色：淡紅棕，不刺眼但看得出是警告 */
   --bar-track: #EFEBE4;   /* 預算進度條的底軌 */
   --bar-ok: #7C8C6E;      /* 還很安全（未達 80%）暗綠 */
   --bar-near: #BE8A4E;    /* 快用完了（80～99%）土橘 */
@@ -62,6 +63,7 @@
   --warn-border: #4D4132;
   --tint: #332F29;
   --tint-2: #3A362F;
+  --danger-tint: #3A2B27;
   --bar-track: #3A362F;   /* 暗底上的進度條底軌 */
   --bar-ok: #93A484;      /* 三個狀態色都要提亮，暗底上原本的深色看不出來 */
   --bar-near: #D4A368;
@@ -402,7 +404,30 @@ input, select, button, textarea {
   border: 1px solid var(--border);
   border-bottom: none;
 }
-.modal-title { font-size: 14pt; font-weight: 600; margin-bottom: 6px; }
+/* 標題列：左邊標題，右邊一顆小小的刪除。
+   刪除不放最底下是因為面板內容可能比螢幕高，放底下就得捲動才看得到 */
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.modal-title { font-size: 14pt; font-weight: 600; }
+.btn-delete-mini {
+  flex: 0 0 auto;
+  border: 1px solid var(--neg);
+  background: var(--card);
+  color: var(--neg);
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 11pt;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn-delete-mini:active { opacity: .6; }
+.btn-delete-mini:disabled { opacity: .4; cursor: default; }
+
 .modal-meta {
   font-size: 10.5pt;
   color: var(--text-sub);
@@ -410,35 +435,42 @@ input, select, button, textarea {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-soft);
 }
-.modal-box .input { margin-bottom: 14px; }
-.modal-actions { display: flex; gap: 10px; margin-top: 4px; }
+/* 欄位間距壓緊一點，讓整個面板在一般手機上不用捲就看得完 */
+.modal-box .input { margin-bottom: 11px; }
+.modal-box .field-label { margin-bottom: 4px; }
+.modal-actions { display: flex; gap: 10px; margin-top: 6px; }
 .modal-actions button { flex: 1; }
 
-/* 刪除放在最底下、跟其他操作隔開，不要讓人手滑點到 */
-.modal-danger {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-soft);
-}
 .btn-danger {
   width: 100%;
   padding: 12px;
   border: 1px solid var(--neg);
   border-radius: 8px;
-  background: var(--card);
-  color: var(--neg);
+  background: var(--neg);
+  color: #fff;
   cursor: pointer;
   font-weight: 600;
+  font-family: inherit;
 }
 .btn-danger:disabled { opacity: 0.55; cursor: default; }
-.confirm-row { margin-top: 10px; }
+
+/* 刪除確認：就地展開在標題下方，不用捲到哪裡去找 */
+.confirm-row {
+  background: var(--danger-tint);
+  border: 1px solid var(--neg);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
 .confirm-text {
   display: block;
-  font-size: 11pt;
+  font-size: 11.5pt;
   color: var(--neg);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  line-height: 1.6;
 }
-.confirm-row button { margin-bottom: 8px; }
+.confirm-btns { display: flex; gap: 10px; }
+.confirm-btns button { flex: 1; margin: 0; }
 
 /* ---------- 設定頁：批次改名 ---------- */
 .rename-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 12px; }

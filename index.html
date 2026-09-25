@@ -196,8 +196,21 @@
       <!-- 修改／刪除一筆帳的彈出面板。平常收著，從明細的「⋯」打開 -->
       <div id="edit-modal" class="modal" style="display:none">
         <div class="modal-box">
-          <div class="modal-title">修改這筆帳</div>
+          <!-- 刪除放在標題列右邊，不放最底下：面板內容可能比螢幕高，
+               放底下就得捲動才看得到，等於把最重要的操作藏起來 -->
+          <div class="modal-head">
+            <div class="modal-title">修改這筆帳</div>
+            <button id="e-delete" class="btn-delete-mini" type="button">刪除</button>
+          </div>
           <div id="edit-meta" class="modal-meta"></div>
+
+          <div id="e-confirm" class="confirm-row" style="display:none">
+            <span class="confirm-text">確定要刪掉這筆？刪了就找不回來。</span>
+            <div class="confirm-btns">
+              <button id="e-delete-no" class="btn-secondary" type="button">算了</button>
+              <button id="e-delete-yes" class="btn-danger" type="button">確定刪除</button>
+            </div>
+          </div>
 
           <label class="field-label" for="e-amount">金額</label>
           <input id="e-amount" class="input" type="number" inputmode="decimal" min="0" step="1" />
@@ -219,15 +232,6 @@
           <div class="modal-actions">
             <button id="e-cancel" class="btn-secondary" type="button">取消</button>
             <button id="e-save" class="btn-primary" type="button">儲存</button>
-          </div>
-
-          <div class="modal-danger">
-            <button id="e-delete" class="btn-danger" type="button">刪除這筆</button>
-            <div id="e-confirm" class="confirm-row" style="display:none">
-              <span class="confirm-text">確定要刪掉？刪了就找不回來。</span>
-              <button id="e-delete-yes" class="btn-danger" type="button">確定刪除</button>
-              <button id="e-delete-no" class="btn-secondary" type="button">算了</button>
-            </div>
           </div>
         </div>
       </div>

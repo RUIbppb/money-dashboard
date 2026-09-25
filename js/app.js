@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.7';
+  const APP_VERSION = 'v3.8';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -953,7 +953,7 @@
     setEditMsg('', '');
     // 每次打開都把刪除確認收回去，不要讓上一次按到一半的狀態殘留
     $('#e-confirm').style.display = 'none';
-    $('#e-delete').style.display = '';
+    $('#e-delete').disabled = false;
 
     const transfer = isTransferTx(tx);
 
@@ -1139,7 +1139,7 @@
       if (isStaleRowError(res.message)) {
         // 刪除的確認狀態要收回去，不然他看到訊息會直接又按「確定刪除」
         $('#e-confirm').style.display = 'none';
-        $('#e-delete').style.display = '';
+        $('#e-delete').disabled = false;
         recoverStaleRow(res.message);
         return;
       }
@@ -1162,16 +1162,17 @@
       });
     }
 
+    // 刪除鍵在標題列，按下去之後只把它變灰、不隱藏，否則標題列會塌掉跳一下
     const del = $('#e-delete');
     if (del) del.addEventListener('click', function () {
       $('#e-confirm').style.display = 'block';
-      del.style.display = 'none';
+      del.disabled = true;
     });
 
     const no = $('#e-delete-no');
     if (no) no.addEventListener('click', function () {
       $('#e-confirm').style.display = 'none';
-      $('#e-delete').style.display = '';
+      $('#e-delete').disabled = false;
     });
 
     const yes = $('#e-delete-yes');
