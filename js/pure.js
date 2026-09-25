@@ -265,6 +265,10 @@ var JZPure = (function () {
     var month = f.month || '__all';
     var cat = f.cat || '__all';
     var kw = safeStr(f.kw).trim().toLowerCase();
+    // 帳戶是**精確比對**，不是「包含」。
+    // 因為這個篩選最重要的用途是抓出打錯字的帳戶名（例如「玉山銀行」之於「玉山」），
+    // 用包含比對的話，要抓的那幾筆會混在正確的裡面，等於白做。
+    var acct = safeStr(f.acct).trim() || '__all';
 
     var result = [];
     for (var i = 0; i < transactions.length; i++) {
@@ -272,6 +276,7 @@ var JZPure = (function () {
 
       if (month !== '__all' && safeStr(tx.time).slice(0, 7) !== month) continue;
       if (cat !== '__all' && safeStr(tx.category) !== cat) continue;
+      if (acct !== '__all' && safeStr(tx.account).trim() !== acct) continue;
       if (kw) {
         var hay = (safeStr(tx.item) + ' ' + safeStr(tx.note)).toLowerCase();
         if (hay.indexOf(kw) < 0) continue;
@@ -668,12 +673,65 @@ var JZPure = (function () {
   }
 
   // ============================================================
+  // 七、incomeItems —— 收入是靠什麼賺來的
+  // ============================================================
+  /*
+   * 回傳 [{ item, total, count }]，金額大到小。
+   *
+   * 為什麼看「項目」不看「分類」？
+   * 因為收入分類只有三種，而且警察收入就佔了九成——圓餅圖畫出來是一個圓，沒有資訊量。
+   * 真正有資訊的是項目層級：超勤、獎勵金、考績獎金、代墊回收各是多少。
+   *
+   * @param transactions 流水帳
+   * @param month        'yyyy-MM' 只看那個月；'__all' 或不給 = 全部期間
+   * @param limit        只留前幾名；0 或不給 = 全部
+   */
+  function incomeItems(transactions, month, limit) {
+    if (!transactions || !transactions.length) return [];
+
+    var m = safeStr(month).trim() || '__all';
+    var max = (typeof limit === 'number' && limit > 0) ? limit : 0;
+
+    var map = {};
+    for (var i = 0; i < transactions.length; i++) {
+      var tx = transactions[i] || {};
+      if (safeStr(tx.type).trim() !== '收入') continue;
+      if (m !== '__all' && safeStr(tx.time).slice(0, 7) !== m) continue;
+
+      // 項目沒填的帳照樣要算進總額，不然加起來跟每月收入對不上，
+      // 看起來像少了一筆。給它一個看得懂的名字，順便提醒他補上。
+      var name = safeStr(tx.item).trim();
+      if (name === '') name = '（未命名）';
+
+      if (!map[name]) map[name] = { item: name, total: 0, count: 0 };
+      map[name].total += Math.abs(toNumber(tx.amount));
+      map[name].count += 1;
+    }
+
+    var out = [];
+    for (var key in map) {
+      if (map.hasOwnProperty(key)) {
+        map[key].total = round2(map[key].total);
+        out.push(map[key]);
+      }
+    }
+    // 金額大到小；金額一樣就照名稱排，讓結果穩定
+    out.sort(function (a, b) {
+      if (b.total !== a.total) return b.total - a.total;
+      return a.item < b.item ? -1 : (a.item > b.item ? 1 : 0);
+    });
+
+    return max > 0 ? out.slice(0, max) : out;
+  }
+
+  // ============================================================
   // 對外公開的介面
   // ============================================================
   return {
     parseAmountFromText: parseAmountFromText,
     computeAccountMismatch: computeAccountMismatch,
     filterTransactions: filterTransactions,
+    incomeItems: incomeItems,
     summarize: summarize,
     topItems: topItems,
     // 報表

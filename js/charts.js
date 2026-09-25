@@ -217,7 +217,7 @@ const JZCharts = (function () {
    * 那就違背了「顏色不單獨扛辨識責任」這條原則。
    * 要看別的分類就用上面的下拉選單切換。
    */
-  function drawCategoryTrend(canvasId, months, values, categoryName) {
+  function drawCategoryTrend(canvasId, months, values, categoryName, overrideColor) {
     destroy(canvasId);
     const el = document.getElementById(canvasId);
     if (!el) return;
@@ -227,8 +227,9 @@ const JZCharts = (function () {
     }
     hideEmpty(canvasId);
 
-    // 用該分類本來的顏色，跟圓餅圖對得起來
-    const color = C.cats[categoryName] || C.fallback;
+    // 用該分類本來的顏色，跟圓餅圖對得起來。
+    // overrideColor 是給「收入走勢」這種不屬於支出分類的線用的，不傳就照原本的規則走
+    const color = overrideColor || C.cats[categoryName] || C.fallback;
 
     instances[canvasId] = new Chart(el, {
       type: 'line',
@@ -339,12 +340,22 @@ const JZCharts = (function () {
     if (hint) hint.style.display = 'none';
   }
 
+  /*
+   * 收入的月走勢。線的顏色用 THEME 裡既有的 income 色，
+   * 跟「每月收支」長條圖的收入那一根同色，兩張圖對照著看不會錯亂。
+   * 顏色在這裡決定而不是讓 app.js 傳進來，這樣深淺色切換時自動跟著變。
+   */
+  function drawIncomeTrend(canvasId, months, values) {
+    drawCategoryTrend(canvasId, months, values, '收入', C.income);
+  }
+
   return {
     applyTheme: applyTheme,
     drawCategoryPie: drawCategoryPie,
     drawAssetLine: drawAssetLine,
     drawMonthlyBar: drawMonthlyBar,
-    drawCategoryTrend: drawCategoryTrend
+    drawCategoryTrend: drawCategoryTrend,
+    drawIncomeTrend: drawIncomeTrend
   };
 })();
 

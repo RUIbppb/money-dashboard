@@ -9,7 +9,7 @@
 
   // 版本號。改版時這裡、index.html 的顯示版本、service-worker.js 的 CACHE_VERSION
   // 三個地方要一起改（詳見 service-worker.js 開頭的改版檢查清單）
-  const APP_VERSION = 'v3.0';
+  const APP_VERSION = 'v3.1';
 
   // 支出分類（圓餅圖、明細篩選、記帳下拉，全部都用這一份）
   const EXPENSE_CATEGORIES = ['食', '玩樂', '交通', '寵物', '貸款', '其他'];
@@ -262,11 +262,15 @@
     let msg;
     if (r.unknownAccounts.length > 0) {
       // 找得到是哪個名字打錯 → 直接告訴他要去改什麼
+      // 找得到是哪個名字打錯 → 做成可以點的，點下去直接看到是哪幾筆。
+      // 只告訴他「有問題」卻要他自己去試算表大海撈針，等於把最麻煩的一段丟回給他
       const parts = r.unknownAccounts.map(function (u) {
-        return '<b>' + escapeHtml(u.name) + '</b>（' + u.count + ' 筆，' + money(u.total) + ' 元）';
+        return '<button type="button" class="link-btn" data-acct="' + escapeHtml(u.name) + '">' +
+          escapeHtml(u.name) + '（' + u.count + ' 筆，' + money(u.total) + ' 元）</button>';
       });
       msg = '有紀錄的支付帳戶不在帳戶名單裡：' + parts.join('、') +
-        '。這些錢不會算進上面的帳戶餘額，請到試算表確認是不是打錯字。';
+        '。這些錢不會算進上面的帳戶餘額。<b>點一下名字就會列出是哪幾筆</b>，' +
+        '確認是不是打錯字。';
     } else {
       // 只知道對不起來，但找不出是哪筆（例如後端算法有變）
       msg = '帳戶餘額加起來跟總資產差了 <b>' + money(Math.abs(r.diff)) +
@@ -375,6 +379,7 @@
     renderCompare();
     renderYearPie();
     renderAchievement();
+    renderIncome();
   }
 
   /* ---------- 分類走勢 ----------
@@ -523,6 +528,86 @@
     }).join('');
   }
 
+  /* ---------- 收入來源 ----------
+   * 走勢用 monthly 的 income（後端算好的，月份連續、沒收入的月份是 0）；
+   * 下面的排行用 transactions 自己算。兩邊加起來會一致，因為後端的 income
+   * 也是從同一份流水帳算出來的。
+   *
+   * 為什麼列「項目」不畫「分類」圓餅？
+   * 因為收入分類只有三種、警察收入佔九成，圓餅畫出來幾乎是一個完整的圓，看不出東西。
+   * 項目層級才有資訊：超勤、獎勵金、考績獎金、代墊回收各是多少。
+   */
+  var incomeMonth = '__all';
+  var INCOME_TOP = 12;
+
+  function renderIncome() {
+    const d = state.data;
+    if (!d) return;
+
+    const monthly = d.monthly || [];
+    const months = monthly.map(function (m) { return m.month; });
+    const values = monthly.map(function (m) { return Number(m.income) || 0; });
+    if (window.JZCharts) JZCharts.drawIncomeTrend('chart-income', months, values);
+
+    // 月份下拉：全部期間 ＋ 各月份（新到舊）
+    const sel = $('#income-month');
+    if (sel) {
+      let opts = '<option value="__all">全部期間</option>';
+      months.slice().reverse().forEach(function (m) {
+        opts += '<option value="' + escapeHtml(m) + '">' + escapeHtml(m) + '</option>';
+      });
+      sel.innerHTML = opts;
+      // 選過的月份如果在新資料裡不見了就退回「全部期間」，不要卡在空畫面
+      if (incomeMonth !== '__all' && months.indexOf(incomeMonth) < 0) incomeMonth = '__all';
+      sel.value = incomeMonth;
+    }
+
+    renderIncomeList();
+  }
+
+  function renderIncomeList() {
+    const d = state.data;
+    const wrap = $('#income-list');
+    if (!wrap || !d) return;
+
+    // 先拿完整清單算總額，再截前幾名顯示。
+    // 佔比一定要用「全部收入」當分母，用前 12 名的和當分母會算出假的比例
+    const all = JZ_PURE().incomeItems(d.transactions || [], incomeMonth, 0);
+    if (all.length === 0) {
+      wrap.innerHTML = '<div class="empty-hint">這段期間沒有收入紀錄。</div>';
+      return;
+    }
+
+    let total = 0;
+    all.forEach(function (r) { total += r.total; });
+
+    const rows = all.slice(0, INCOME_TOP);
+    let html = rows.map(function (r) {
+      const share = total > 0 ? Math.round(r.total / total * 100) : 0;
+      return '<div class="income-row">' +
+        '<span class="income-item">' + escapeHtml(r.item) + '</span>' +
+        '<span class="income-count">' + r.count + ' 筆</span>' +
+        '<span class="income-total">' + money(r.total) + '</span>' +
+        '<span class="income-share">' + share + '%</span>' +
+      '</div>';
+    }).join('');
+
+    // 被截掉的要補一行，不然清單加起來跟總收入對不上，看起來像少算
+    if (all.length > rows.length) {
+      let shown = 0;
+      rows.forEach(function (r) { shown += r.total; });
+      const restCount = all.length - rows.length;
+      html += '<div class="income-row">' +
+        '<span class="income-item muted">其餘 ' + restCount + ' 項</span>' +
+        '<span class="income-count"></span>' +
+        '<span class="income-total muted">' + money(total - shown) + '</span>' +
+        '<span class="income-share"></span>' +
+      '</div>';
+    }
+
+    wrap.innerHTML = html;
+  }
+
   /* ---------- 月底預估 ----------
    * 算法故意很笨：到今天為止的平均日花費 × 剩下的天數，再扣掉還沒繳的固定支出。
    * 不做迴歸也不看季節性——資料量太小，複雜的模型只會給出假精準。
@@ -628,7 +713,8 @@
       compareMonths: function () { return []; },
       yearTotals: function () { return {}; },
       budgetAchievement: function () { return []; },
-      forecastMonthEnd: function () { return null; }
+      forecastMonthEnd: function () { return null; },
+      incomeItems: function () { return []; }
     };
   }
 
@@ -640,7 +726,7 @@
    *                touched 代表他真的動過篩選；沒動過就維持「預設看本月」的原始行為。
    *  detailState： rows 是完整的篩選結果（合計一律用它算），shown 是畫面上目前顯示到第幾筆。
    */
-  const detailFilter = { month: null, cat: '__all', kw: '', touched: false };
+  const detailFilter = { month: null, cat: '__all', acct: '__all', kw: '', touched: false };
   const detailState = { rows: [], shown: 0 };
   const DETAIL_PAGE_SIZE = 200; // 一次先畫這麼多筆，其餘按「載入更多」
 
@@ -694,6 +780,44 @@
       (detailFilter.cat === '__all' || RECORD_CATEGORIES.indexOf(detailFilter.cat) >= 0);
     catSel.value = canRestoreCat ? detailFilter.cat : '__all';
 
+    /*
+     * 帳戶下拉：選項從「流水帳裡實際出現過的帳戶名」產生，**不是**從帳戶名單產生。
+     * 這點是刻意的——名字打錯的那幾筆，它的帳戶名正好就不在名單裡；
+     * 若照名單生選項，要查的那幾筆會永遠選不到，這個功能等於白做。
+     * 不在名單裡的名字前面加個記號，讓他一眼看出哪個是打錯的。
+     */
+    const acctSel = $('#detail-acct');
+    if (acctSel) {
+      const known = {};
+      (d && d.accounts ? d.accounts : []).forEach(function (a) { known[a.name] = true; });
+
+      const accts = [];
+      (d ? d.transactions || [] : []).forEach(function (t) {
+        const name = (t.account || '').trim();
+        if (name && accts.indexOf(name) < 0) accts.push(name);
+      });
+      // 不在名單裡的（known 是 false，排序值 0）排最前面，因為那才是要他去處理的；
+      // 其餘照名稱排，讓順序穩定
+      accts.sort(function (a, b) {
+        const aKnown = known[a] ? 1 : 0;
+        const bKnown = known[b] ? 1 : 0;
+        if (aKnown !== bKnown) return aKnown - bKnown;
+        return a < b ? -1 : (a > b ? 1 : 0);
+      });
+
+      let acctOpts = '<option value="__all">全部帳戶</option>';
+      accts.forEach(function (n) {
+        const mark = known[n] ? '' : '⚠ ';
+        acctOpts += '<option value="' + escapeHtml(n) + '">' + mark + escapeHtml(n) + '</option>';
+      });
+      acctSel.innerHTML = acctOpts;
+
+      const canRestoreAcct = detailFilter.touched && detailFilter.acct &&
+        (detailFilter.acct === '__all' || accts.indexOf(detailFilter.acct) >= 0);
+      acctSel.value = canRestoreAcct ? detailFilter.acct : '__all';
+      detailFilter.acct = acctSel.value;
+    }
+
     // 把最後決定的值寫回記憶，讓下次還原時有依據
     detailFilter.month = monthSel.value;
     detailFilter.cat = catSel.value;
@@ -708,15 +832,18 @@
     const d = state.data;
     const monthSel = $('#detail-month');
     const catSel = $('#detail-cat');
+    const acctSel = $('#detail-acct');
     const kwEl = $('#detail-kw');
 
     detailFilter.month = monthSel ? monthSel.value : '__all';
     detailFilter.cat = catSel ? catSel.value : '__all';
+    detailFilter.acct = acctSel ? acctSel.value : '__all';
     detailFilter.kw = kwEl ? kwEl.value : '';
 
     detailState.rows = JZPure.filterTransactions(d ? d.transactions : null, {
       month: detailFilter.month,
       cat: detailFilter.cat,
+      acct: detailFilter.acct,
       kw: detailFilter.kw
     });
     detailState.shown = 0;
@@ -839,10 +966,42 @@
     switchTab('detail');
     const monthSel = $('#detail-month');
     const catSel = $('#detail-cat');
+    const acctSel = $('#detail-acct');
     const kwEl = $('#detail-kw');
     if (monthSel) monthSel.value = '__all';
     if (catSel) catSel.value = '__all';
+    if (acctSel) acctSel.value = '__all';
     if (kwEl) kwEl.value = tag;
+    detailFilter.touched = true;
+    applyDetailFilter();
+  }
+
+  /*
+   * 從總覽的「帳戶對不上」提醒點進來：切到明細，篩出那個帳戶的全部紀錄。
+   * 月份同樣要設成「全部」——提醒上寫的筆數與金額是全期間算的，
+   * 只篩本月的話兩個數字對不起來，看起來像程式壞了。
+   */
+  function jumpToAccount(name) {
+    if (!name) return;
+    switchTab('detail');
+    const monthSel = $('#detail-month');
+    const catSel = $('#detail-cat');
+    const acctSel = $('#detail-acct');
+    const kwEl = $('#detail-kw');
+    if (monthSel) monthSel.value = '__all';
+    if (catSel) catSel.value = '__all';
+    if (kwEl) kwEl.value = '';
+    if (acctSel) {
+      // 正常情況選項一定在（提醒跟下拉是同一批交易算出來的）。
+      // 萬一資料剛好在這中間重整過，補一個進去，至少不要讓他點了沒反應。
+      if (!hasOption(acctSel, name)) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = '⚠ ' + name;
+        acctSel.appendChild(opt);
+      }
+      acctSel.value = name;
+    }
     detailFilter.touched = true;
     applyDetailFilter();
   }
@@ -1565,7 +1724,7 @@
 
     // 明細篩選事件：使用者一動就記下來（touched），
     // 這樣跑去記一筆帳、資料重新載入回來時，篩選條件不會被重設掉
-    ['#detail-month', '#detail-cat'].forEach(function (sel) {
+    ['#detail-month', '#detail-cat', '#detail-acct'].forEach(function (sel) {
       const el = $(sel);
       if (el) el.addEventListener('change', function () {
         detailFilter.touched = true;
@@ -1593,6 +1752,26 @@
         const row = e.target && e.target.closest ? e.target.closest('.tag-row') : null;
         const tag = row ? row.getAttribute('data-tag') : '';
         if (tag) jumpToTag(tag);
+      });
+    }
+
+    // 「帳戶對不上」提醒裡的名字可以點：跳到明細，列出是哪幾筆。
+    // 綁在容器上（事件委派），因為裡面的按鈕每次重新渲染都會換掉
+    const warnEl = $('#account-warning');
+    if (warnEl) {
+      warnEl.addEventListener('click', function (e) {
+        const btn = e.target && e.target.closest ? e.target.closest('.link-btn') : null;
+        const name = btn ? btn.getAttribute('data-acct') : '';
+        if (name) jumpToAccount(name);
+      });
+    }
+
+    // 收入來源的月份切換：只重畫下面的排行，上面的走勢圖不用動
+    const incomeSel = $('#income-month');
+    if (incomeSel) {
+      incomeSel.addEventListener('change', function () {
+        incomeMonth = incomeSel.value;
+        renderIncomeList();
       });
     }
 

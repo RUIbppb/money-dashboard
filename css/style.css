@@ -251,6 +251,23 @@ input, select, button, textarea {
   line-height: 1.7;
 }
 
+/* 提醒訊息裡可以點的名字。用 button 而不是 a，因為它不是連到別的網頁，
+   而是就地切換畫面；長相做成底線文字，讓人一看就知道可以點 */
+.link-btn {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: none;
+  border: none;
+  border-bottom: 1px solid currentColor;
+  padding: 0 1px;
+  margin: 0;
+  cursor: pointer;
+  line-height: inherit;
+}
+.link-btn:active { opacity: 0.55; }
+
 /* ---------- 報表：分類走勢 ---------- */
 .trend-summary {
   margin-top: 10px;
@@ -303,6 +320,29 @@ input, select, button, textarea {
 .achieve-score { font-size: 13pt; font-weight: 700; flex: 0 0 52px; }
 .achieve-row.good .achieve-score { color: var(--pos); }
 .achieve-note { font-size: 10.5pt; color: var(--text-sub); flex: 1; text-align: right; }
+
+/* ---------- 報表：收入來源 ---------- */
+.income-list { margin-top: 12px; }
+.income-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.income-row:last-child { border-bottom: none; }
+.income-item { font-size: 12pt; flex: 1; }
+.income-count { font-size: 10pt; color: var(--text-sub); flex: 0 0 48px; text-align: right; }
+/* 收入用正向色，跟支出的紅棕分得開 */
+.income-total { font-size: 12pt; font-weight: 600; flex: 0 0 88px; text-align: right; color: var(--pos); }
+.income-share {
+  font-size: 10pt;
+  color: var(--text-sub);
+  flex: 0 0 44px;
+  text-align: right;
+}
+/* 「其餘 N 項」那一行：不是真的項目，是被截斷的那些加總，顏色壓下去 */
+.income-row .muted { color: var(--text-sub); }
 
 /* ---------- 總覽：月底預估 ---------- */
 .forecast-main { font-size: 24pt; font-weight: 700; letter-spacing: 1px; }

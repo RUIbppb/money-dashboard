@@ -143,6 +143,18 @@
           </div>
         </div>
 
+        <!-- 收入來源：回答「錢是靠什麼賺來的」。
+             看項目不看分類——分類只有三種，警察收入就佔九成，畫成圓餅沒有資訊量 -->
+        <div class="block">
+          <div class="block-title">收入來源</div>
+          <div class="chart-box">
+            <canvas id="chart-income"></canvas>
+            <div id="chart-income-empty" class="empty-hint" style="display:none"></div>
+          </div>
+          <select id="income-month" class="input" style="margin-top:12px"></select>
+          <div id="income-list" class="income-list"></div>
+        </div>
+
         <!-- 年度累計：今年到現在，錢的大方向在哪 -->
         <div class="block">
           <div class="block-title"><span id="year-title">年度支出</span></div>
@@ -167,7 +179,10 @@
             <select id="detail-month" class="input"></select>
             <select id="detail-cat" class="input"></select>
           </div>
-          <input id="detail-kw" class="input" type="text" placeholder="搜尋項目或備註…" />
+          <div class="filter-row">
+            <select id="detail-acct" class="input"></select>
+            <input id="detail-kw" class="input" type="text" placeholder="搜尋項目或備註…" />
+          </div>
         </div>
         <!-- 篩選結果的筆數與合計（永遠算完整結果，跟畫面上顯示幾筆無關）-->
         <div id="detail-summary" class="detail-summary" style="display:none"></div>
