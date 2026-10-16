@@ -69,7 +69,9 @@ self.addEventListener('activate', function (event) {
   event.waitUntil(
     caches.keys().then(function (keys) {
       return Promise.all(keys.map(function (key) {
-        if (KEEP_CACHES.indexOf(key) < 0) return caches.delete(key);
+        // 只清掉自己（jz- 開頭）的舊快取。同一個 github.io 網域底下還住著別的 App
+        // （例如警察考試刷題），把不認識的快取一起刪會害它們的離線功能失效。
+        if (key.indexOf('jz-') === 0 && KEEP_CACHES.indexOf(key) < 0) return caches.delete(key);
       }));
     }).then(function () {
       return self.clients.claim();
